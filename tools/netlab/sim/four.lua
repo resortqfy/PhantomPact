@@ -2324,6 +2324,33 @@ local function travel()
     part("F3")
     local s = party()
     local h, a, b, c = s.pcs[1], s.pcs[2], s.pcs[3], s.pcs[4]
+    c.groundTraces = true
+    -- Three partner bodies over the same hole. The only thing a downward trace could hit is one of them.
+    do
+        for _, partner in ipairs({ h, a, b }) do
+            Session.moveTo(partner, 8000, 0)
+        end
+        Session.moveTo(c, 0, 0)
+        s:run(2)
+        local kismet = c.env.StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        local trace = kismet.LineTraceSingle
+        Fake.put(kismet, "LineTraceSingle", function(_, _, _, _, _, _, ignored)
+            local skipped = {}
+            for _, actor in ipairs(ignored) do
+                skipped[actor] = true
+            end
+            for slot = 1, 3 do
+                if not skipped[ghostOf(c, slot)] then
+                    return true
+                end
+            end
+            return false
+        end)
+        local reason = c.env.PBZ.coop.joinPartner()
+        check(reason == "no safe ground beside your partner right now." and at(c.pawn).X == 0,
+            "a group of partner ghosts over a hole cannot serve as the landing floor")
+        Fake.put(kismet, "LineTraceSingle", trace)
+    end
     Session.moveTo(h, 0, 0)
     Session.moveTo(a, 20000, 0)
     Session.moveTo(b, 3000, 0)
@@ -2916,6 +2943,7 @@ local function sits()
     spread(s)
     s:run(2)
     local h, a, b, c = s.pcs[1], s.pcs[2], s.pcs[3], s.pcs[4]
+    c.groundTraces = true
     local function refreshes()
         return count(h.trace, "GameMode Refresh Monster") + count(a.trace, "GameMode Refresh Monster")
             + count(b.trace, "GameMode Refresh Monster") + count(c.trace, "GameMode Refresh Monster")
@@ -3319,6 +3347,7 @@ local function sitsForTwo()
     bossStart(w)
     w:run(6)
     local late = w.pcs[2]
+    late.groundTraces = true
     check(net(late).watchingFight == true, "a guest who joins in a fight watches it")
     Session.moveTo(w.pcs[1], 6000, 6000)
     w:run(1)
@@ -10906,6 +10935,7 @@ local function playerReports()
         w:run(10)
         check(net(late).watchingFight ~= true, "and not held again by it")
         -- (The trip to the host still comes when the fight is over.)
+        late.groundTraces = true
         Session.moveTo(late, 9000, 9000)
         w.pcs[1].hudLayout:UnRegisterBossHPBar(Session.enemyOn(w.pcs[1], "boss"))
         w:run(12)
@@ -13431,6 +13461,7 @@ local function lateJoiner()
     bossStart(s)
     s:run(6)
     local late = s.pcs[4]
+    late.groundTraces = true
     check(net(late).party == 4 and net(late).partnerFighting == true, "a guest who joins now hears there's a fight")
     check(net(late).watchingFight == true, "and watches it")
     check(late.env.PBZ.game.isSpectating(), "through someone in it")

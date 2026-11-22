@@ -61,6 +61,7 @@ return function(scriptDir)
         ["you're past the prologue."] = "你已经过了序章。",
         ["your partner is still in the prologue."] = "你的同伴还在序章中。",
         ["your partner can't be joined right now."] = "现在无法传送到队友身边。",
+        ["no safe ground beside your partner right now."] = "队友身边暂时没有安全的落脚点。",
         ["your partner's position looks wrong."] = "队友的位置不正常。",
         ["your partner's map isn't known yet."] = "还不知道队友在哪张地图。",
         ["the game wouldn't go there."] = "游戏无法前往那里。",

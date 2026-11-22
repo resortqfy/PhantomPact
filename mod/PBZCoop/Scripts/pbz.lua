@@ -7439,14 +7439,14 @@ return function(api)
     -- Whether there's ground within 3 m under a place (a line down from half a metre over it): a player isn't set
     -- down over a hole, or over ground this world hasn't loaded (the bench, run103: one set down 34 m off fell
     -- through it). The eleventh review.
-    function game.floorUnder(pawn, x, y, z)
+    function game.floorUnder(pawn, x, y, z, ignored)
         local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
         if not (valid(ksl) and valid(pawn)) then
             return false
         end
         local hit, none = {}, { R = 0, G = 0, B = 0, A = 0 }
         local ok, got = pcall(function()
-            return ksl:LineTraceSingle(pawn, { X = x, Y = y, Z = z + 50 }, { X = x, Y = y, Z = z - 300 }, 0, false, {}, 0, hit,
+            return ksl:LineTraceSingle(pawn, { X = x, Y = y, Z = z + 50 }, { X = x, Y = y, Z = z - 300 }, 0, false, ignored, 0, hit,
                 true, none, none, 0)
         end)
         return ok and got == true

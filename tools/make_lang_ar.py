@@ -33,7 +33,7 @@ LINES = [
                      "f5more.tip.players_host", "f5more.tip.host_setting", "f5more.tip.players_next",
                      "local.tip.multiplayer_next", "tip.f3.tp_off", "tip.f3.too_late", "tip.f3.no_partner", "tip.f3.not_now",
                      "tip.f3.in_prologue", "f5more.tip.skip_how", "f5more.tip.past_prologue", "tip.f3.partner_prologue",
-                     "tip.f3.cant_join", "tip.f3.position", "tip.f3.map_unknown", "tip.f3.wouldnt_go"]),
+                     "tip.f3.cant_join", "tip.f3.no_ground", "tip.f3.position", "tip.f3.map_unknown", "tip.f3.wouldnt_go"]),
     ("revive", ["tip.boss.hold", "tip.boss.finisher_only", "tip.boss.finisher_none", "tip.boss.watching", "tip.boss.wall_join", "tip.boss.taking_long", "tip.boss.f3_join",
                 "tip.boss.no_ground", "tip.conn.clock", "revive.tip.up", "revive.tip.down", "revive.tip.partner_down",
                 "revive.tip.partner_up"]),
