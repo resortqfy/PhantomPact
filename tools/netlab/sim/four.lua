@@ -2324,6 +2324,7 @@ local function travel()
     part("F3")
     local s = party()
     local h, a, b, c = s.pcs[1], s.pcs[2], s.pcs[3], s.pcs[4]
+    c.groundTraces = true
     Session.moveTo(h, 0, 0)
     Session.moveTo(a, 20000, 0)
     Session.moveTo(b, 3000, 0)
@@ -2916,6 +2917,7 @@ local function sits()
     spread(s)
     s:run(2)
     local h, a, b, c = s.pcs[1], s.pcs[2], s.pcs[3], s.pcs[4]
+    c.groundTraces = true
     local function refreshes()
         return count(h.trace, "GameMode Refresh Monster") + count(a.trace, "GameMode Refresh Monster")
             + count(b.trace, "GameMode Refresh Monster") + count(c.trace, "GameMode Refresh Monster")
@@ -3319,6 +3321,7 @@ local function sitsForTwo()
     bossStart(w)
     w:run(6)
     local late = w.pcs[2]
+    late.groundTraces = true
     check(net(late).watchingFight == true, "a guest who joins in a fight watches it")
     Session.moveTo(w.pcs[1], 6000, 6000)
     w:run(1)
@@ -10907,6 +10910,7 @@ local function playerReports()
         w:run(10)
         check(net(late).watchingFight ~= true, "and not held again by it")
         -- (The trip to the host still comes when the fight is over.)
+        late.groundTraces = true
         Session.moveTo(late, 9000, 9000)
         w.pcs[1].hudLayout:UnRegisterBossHPBar(Session.enemyOn(w.pcs[1], "boss"))
         w:run(12)
@@ -13432,6 +13436,7 @@ local function lateJoiner()
     bossStart(s)
     s:run(6)
     local late = s.pcs[4]
+    late.groundTraces = true
     check(net(late).party == 4 and net(late).partnerFighting == true, "a guest who joins now hears there's a fight")
     check(net(late).watchingFight == true, "and watches it")
     check(late.env.PBZ.game.isSpectating(), "through someone in it")
