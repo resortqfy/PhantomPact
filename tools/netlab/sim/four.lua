@@ -9750,14 +9750,13 @@ local function followTheHost()
         "a guest catches up past an ending's condition, and that isn't set for them: their own play's to meet")
     allErrors(n)
 
-    -- The bags on joining: only the host gives. A guest gets what the host has and they lack; a guest's own things
-    -- (a finished save's weapons and money) stay theirs and don't fill a newcomer host's bag.
+    -- Each player's materials stay in their own bag when joining.
     local b, bh, bg = pair(nil, function(ph, pg)
         Session.gainItem(ph, "R_700", 2)
         Session.gainItem(pg, "R_800", 5)
     end)
     b:run(20)
-    check(Session.items(bg, "R_700") == 2, "a guest joining gets what's in the host's bag")
+    check(Session.items(bg, "R_700") == 0, "a joining guest receives none of the host's materials")
     check(Session.items(bh, "R_800") == 0, "but the host gets nothing from the guest's bag")
     check(Session.items(bg, "R_800") == 5 and Session.items(bh, "R_700") == 2, "and each keeps their own")
     allErrors(b)
@@ -9773,9 +9772,9 @@ local function followTheHost()
         Session.gainItem(ph, "I_RELIC_3", 1)
         Session.gainItem(ph, "I_RELIC_4", 1)
     end)
-    k:run(70)                                   -- (past the run's first minute)
-    check(Session.items(kg, "Weapon_Material_01") == 3 and Session.items(kg, "I_RELIC_3") == 1
-        and Session.items(kg, "I_RELIC_4") == 1, "(the first joining: what the host has, counted)")
+    k:run(70)
+    check(Session.items(kg, "Weapon_Material_01") == 0 and Session.items(kg, "I_RELIC_3") == 1
+        and Session.items(kg, "I_RELIC_4") == 1, "the first join gives both quest relics and no weapon material")
     kg.bag:RemovePropsFromBackPack(2, kg.env.FName("Weapon_Material_01"))       -- (used since)
     kg.bag:RemovePropsFromBackPack(1, kg.env.FName("I_RELIC_3"))    -- (a key spent at its door: the host's opens by the word)
     kg.bag:RemovePropsFromBackPack(1, kg.env.FName("I_RELIC_4"))    -- (handed in)
@@ -9788,8 +9787,8 @@ local function followTheHost()
     Session.command(kg, "neton client")
     k:run(20)
     check(Session.items(kg, "I_KEY_9") == 1, "back in the same run: a story thing the host found meanwhile comes")
-    check(Session.items(kg, "Weapon_Material_01") == 1 and Session.items(kg, "Weapon_Material_02") == 0,
-        "and nothing that's counted: what was used stays used, a material found meanwhile stays the host's ("
+    check(Session.items(kg, "Weapon_Material_01") == 0 and Session.items(kg, "Weapon_Material_02") == 0,
+        "neither the host's original material nor one found while apart is given on rejoining ("
             .. Session.items(kg, "Weapon_Material_01") .. ", " .. Session.items(kg, "Weapon_Material_02") .. ")")
     check(Session.items(kg, "Item_Piece_002") == 0 and Session.items(kg, "K_TOKEN_9") == 0,
         "nor a piece, or a story thing made of several: what pays its find pays it, once ("
