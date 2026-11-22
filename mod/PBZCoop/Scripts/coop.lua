@@ -2888,13 +2888,13 @@ return function(api)
         net.announced = {}
         net.enemyNames = {}
         net.lookSent = nil                  -- (what this player wears goes to them at the next look)
-        net.bagSent, net.bagDue = false, os.clock() + 3     -- (and what's in this bag, once they're up: game.mergeBag)
-        net.bagWaiting = nil                                -- (what they sent before is old now)
-        -- (In a party, to that one guest: sent to all, every guest still in its first minute topped its bag up again at
-        -- each join and each reconnect, the bombs and herbs it had used since.)
-        if isHost() and from then
-            net.bagTo = net.bagTo or {}
-            net.bagTo[from] = true
+        net.bagWaiting = nil
+        if isHost() then
+            net.bagDue = os.clock() + 3
+            if from then
+                net.bagTo = net.bagTo or {}
+                net.bagTo[from] = true
+            end
         end
         if isHost() and game.offerChestsAgain then
             game.offerChestsAgain()         -- (the open chests here: named again, for them)
@@ -3503,22 +3503,26 @@ return function(api)
         end
     end
 
-    -- The bags, on linking (see game.mergeBag): the host sends what it has once per link, in lines a few hundred
-    -- characters long, and a guest takes from it what it lacks, at a moment with a body to put it on. Only the host
-    -- gives (the user's rule, after a report): a guest catches up to the host's world, boss weapons the story needs
-    -- included, but a guest far ahead (a finished NG+ save) gave a newcomer host everything, and spoiled their game.
+    -- On joining or reconnecting, only the host offers story items for its world.
     do      -- (a block of its own: this function is at the 200 locals Lua allows)
     local BAG_LINE = 600
     function net.sendBag()
-        if not isHost() then
-            net.bagSent = true      -- (a guest's bag is its own: nothing goes to the host)
-            return true
-        end
         local _, pawn = getPlayer1()
-        if not (game.bagSummary and valid(pawn)) or game.isDead(pawn) then
+        if not valid(pawn) or game.isDead(pawn) then
             return false
         end
-        local list, line, lines = game.bagSummary(pawn), {}, 0
+        local props, hasGourd = game.bagSummary(pawn)
+        local list, line, lines = {}, {}, 0
+        if props then
+            for id, count in pairs(props) do
+                if count > 0 and (game.oneOfAKind(id) or game.keptOnce(id)) then
+                    list[#list + 1] = "p:" .. id .. ":1"
+                end
+            end
+        end
+        if hasGourd then
+            list[#list + 1] = "m:Hulu:1"
+        end
         local size = 0
         local to = net.party and net.bagTo and next(net.bagTo) and net.bagTo or nil
         local function send(text)
@@ -3541,8 +3545,8 @@ return function(api)
             send(table.concat(line, ","))
             lines = lines + 1
         end
-        net.bagSent, net.bagTo = true, nil
-        log(string.format("Sent what's in this bag (%d things, %d lines): the partner takes what they lack.", #list, lines))
+        net.bagTo = nil
+        log(string.format("Offered %d story items in %d lines.", #list, lines))
         return true
     end
     handlers.BAG = function(rest, from)
@@ -3552,12 +3556,10 @@ return function(api)
         end
         net.bagWaiting = net.bagWaiting or {}
         for e in rest:gmatch("[^,]+") do
-            if #e <= MAX_ITEM_NAME + 12 and e:match("^[wemap]:[%w_%-]+:%d+$") and #net.bagWaiting < 4000 then
-                net.bagWaiting[#net.bagWaiting + 1] = e
+            local kind, id = e:match("^([pm]):([%w_%-]+):1$")
+            if (kind == "p" or (kind == "m" and id == "Hulu")) and #id <= MAX_ITEM_NAME and #net.bagWaiting < 4000 then
+                net.bagWaiting[#net.bagWaiting + 1] = { kind = kind, id = id }
             end
-        end
-        if not net.bagSent then
-            net.bagDue = 0          -- (they've sent theirs: ours goes too, if it hasn't this link)
         end
     end
     extraTicksEarly.bags = function()
@@ -3569,23 +3571,18 @@ return function(api)
             net.bagDue = nil
         end
         local waiting = net.bagWaiting
-        -- (Story sync off (FollowHostStory = Off): this player's game is its own, the things it hasn't found too. The bag
-        -- still filled up from the host's on joining.)
         if waiting and api.story and api.story.follow == false then
             net.bagWaiting = nil
             log("Story sync is off: nothing taken from the host's bag.")
             waiting = nil
         end
         local _, pawn = getPlayer1()
-        if waiting and valid(pawn) and not game.isDead(pawn) and not (game.inCutscene and game.inCutscene()) and game.mergeBag then
+        if waiting and valid(pawn) and not game.isDead(pawn) and not game.inCutscene() then
             net.bagWaiting = nil
-            -- (Counts once a game run: what's used up since stays used. A big bag comes in several lines, and those can come
-            -- a tick or more apart: all that come in the first minute are counted, or only the first line's were.)
-            net.bagCounted = net.bagCounted or now + 60
-            local came = game.mergeBag(pawn, waiting, now < net.bagCounted)
+            local came = game.mergeBag(pawn, waiting)
             if came > 0 then
-                log(string.format("Took %d things from the partner's bag that this one lacked.", came))
-                api.status.notify("bag", string.format("your bag now has what your partner's has (%d new).", came))
+                log(string.format("Received %d missing story items from the host.", came))
+                api.status.notify("bag", string.format("story items received from the host: %d.", came))
             end
         end
     end
@@ -5255,7 +5252,7 @@ return function(api)
         net.hostWorld = nil
         net.hostLethal, net.deadBodies = {}, {}
         net.everHeard, net.gapped, net.retellAt = nil, nil, nil
-        net.bagSent, net.bagDue, net.bagWaiting = false, nil, nil
+        net.bagDue, net.bagTo, net.bagWaiting = nil, nil, nil
         net.remoteEnemies = {}
         net.enemyNames = {}
         net.announced = {}

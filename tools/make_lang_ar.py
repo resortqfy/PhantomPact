@@ -74,7 +74,7 @@ PARTS = [
         ("tip.partner.f3_there", " F3 takes you there%.$"),
         ("tip.conn.connected_ping_signed", "^partner connected %(ping (%d+) ms%), signed%.$"),
         ("tip.conn.connected_ping", "^partner connected %(ping (%d+) ms%)%.$"),
-        ("tip.partner.bag", "^your bag now has what your partner's has %((%d+) new%)%.$"),
+        ("tip.partner.bag", "^story items received from the host: (%d+)%.$"),
         ("tip.conn.couldnt_start", "^co%-op couldn't start: (.*)$"),
         ("tip.conn.steam_couldnt", "^Steam couldn't connect: (.+)%. See Connection problems in the install guide%.$"),
         ("tip.conn.settings_differ", "^settings differ from your partner's: (.*)$"),
