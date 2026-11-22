@@ -6174,34 +6174,22 @@ return function(api)
         game.pickupShares = kept
     end
 
-    -- On linking, the two bags come to the most of each (the user: "they adjust to the one that has more so no one
-    -- loses"): weapons, Phantom Edges, accessories and medicines one has, the other gets; a thing that's counted comes to
-    -- the higher count, never the two added; quest things too, the quests themselves going both ways (story.lua). Not
-    -- dust. After that, what anyone finds comes to both as it always did. (No locals here: this file is at its 200.)
-    -- An entry is "kind:id:count", kind w (weapon) e (Phantom Edge) a (accessory) m (medicine) p (counted).
+    -- Inventory entries survive hand-in and consumption with a zero amount. A guest needs that history on rejoining.
     function game.bagSummary(pawn)
-        local bp = valid(pawn) and worldSubsystem(pawn, BACKPACK)
-        local out = {}
+        local bp = game.backpackOf(pawn)
         if not bp then
-            return out
+            return nil, false
         end
-        for list, kind in pairs({ MainWeaponInfos = "w", ShaqiWeaponInfos = "e", Accessories = "a", MedicineInfos = "m" }) do
-            pcall(function()
-                bp[list]:ForEach(function(k)
-                    out[#out + 1] = kind .. ":" .. k:get():ToString() .. ":1"
-                end)
-            end)
-        end
-        pcall(function()
-            bp.Inventories:ForEach(function(k, v)
-                local n = v:get().CurrentAmount
-                local id = k:get():ToString()
-                if type(n) == "number" and n > 0 and not game.keptApart(id) then
-                    out[#out + 1] = "p:" .. id .. ":" .. math.floor(n)
-                end
-            end)
+        local props, hasGourd = {}, false
+        bp.Inventories:ForEach(function(k, v)
+            props[k:get():ToString()] = v:get().CurrentAmount
         end)
-        return out
+        bp.MedicineInfos:ForEach(function(k)
+            if k:get():ToString() == "Hulu" then
+                hasGourd = true
+            end
+        end)
+        return props, hasGourd
     end
 
     -- What this player holds: id -> count, gear and quest things too. (game.noteDown, game.payOwed)
@@ -6505,67 +6493,21 @@ return function(api)
         return open or os.clock() - (game.dialogueAt or -1e9) < 5
     end
 
-    -- What the partner's bag has and this one lacks. Returns how many things came. counts false: things that are counted
-    -- (used up as they're used) aren't topped up, only what one has or hasn't: after the first merge with a partner, a
-    -- sync started again refilled the bombs and herbs used since.
-    function game.mergeBag(pawn, entries, counts)
-        local bp = valid(pawn) and worldSubsystem(pawn, BACKPACK)
-        if not bp then
+    function game.mergeBag(pawn, entries)
+        local held, hasGourd = game.bagSummary(pawn)
+        if not held then
             return 0
         end
-        local have = {}
-        for _, e in ipairs(game.bagSummary(pawn)) do
-            local kind, id, n = e:match("^(%a):(.+):(%d+)$")
-            have[kind .. ":" .. id] = tonumber(n)
-        end
         local came = 0
-        -- (What this bag has ever held: its entries, one back at 0 among them (game.hadItem), read once, when first asked.)
-        local ever = nil
-        local function heldBefore(id)
-            if ever == nil then
-                ever = {}
-                pcall(function()
-                    bp.Inventories:ForEach(function(k)
-                        ever[k:get():ToString()] = true
-                    end)
-                end)
-            end
-            return ever[id] == true
-        end
-        for _, e in ipairs(entries) do
-            local kind, id, n = e:match("^(%a):([%w_%-]+):(%d+)$")
-            n = n and math.min(tonumber(n), 9999)
-            local key = kind and kind .. ":" .. id
-            local mine = key and have[key] or nil
-            if kind == "p" and counts ~= false and n and n > (mine or 0) then
-                game.grantLoot(pawn, id, nil, n - (mine or 0), true)
+        for _, entry in ipairs(entries) do
+            if entry.kind == "p" and held[entry.id] == nil then
+                game.grantLoot(pawn, entry.id, nil, 1, true)
+                held[entry.id] = 1
                 came = came + 1
-            elseif kind == "p" and n and mine == nil and game.oneOfAKind(id) and not heldBefore(id) then
-                -- (A sync started again: a story thing there's one of, which the host found while this player was away
-                -- and this bag never held. Not one it had and used since, a key spent at its door, a thing handed in:
-                -- the host keeps its own, and it came back at every sync. Nor a piece, what pieces make, or a story
-                -- thing made of several: none here says nothing of what's owed (four shards are an amber as the fourth
-                -- comes), and the host's chest or this world's own copy of the find pays it too. The sixth review; on
-                -- the bench a player back after 25 minutes took 90 things at once, three ambers among them.)
-                game.grantLoot(pawn, id, nil, n, true)
+            elseif entry.kind == "m" and not hasGourd and not game.inPrologue() then
+                game.giveGourd(true)
+                hasGourd = true
                 came = came + 1
-            elseif kind == "m" and id == "Hulu" and mine == nil then
-                -- The healing gourd, which grantLoot never hands over (in the prologue it came unequipped, and none to drink
-                -- from): past the prologue, a player without one gets it equipped and full. The game's own prologue skip
-                -- (New Game, 66 days) left a guest with none (the user, 11-06), as did joining from the prologue in 1.6.3.
-                if not (game.inPrologue and game.inPrologue()) then
-                    game.giveGourd(true)
-                    came = came + 1
-                end
-            elseif kind and kind ~= "p" and mine == nil then
-                game.grantLoot(pawn, id, ({ w = "weapon", e = "weapon2", a = "accessory", m = "medicine" })[kind], nil, true)
-                if gearKnown then
-                    gearKnown[id] = true     -- (or the next look at the lists sends it back as found)
-                end
-                came = came + 1
-            end
-            if key and n then
-                have[key] = math.max(n, mine or 0)  -- (two bags in one go: the most of the two, not both gaps added)
             end
         end
         return came
