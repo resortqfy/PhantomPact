@@ -4781,9 +4781,7 @@ return function(api)
         return out, why
     end
 
-    -- Rest this player as a sit would: only for a partner's sit during a boss fight this player is in (their own, or a
-    -- partner's they joined or struck), the fight starting over (coop.lua handlers.SIT; the user's rule, 11-12). Health
-    -- through the bell's own step: written by hand it leaves the low health look on the screen. The gourd to its whole size
+    -- Health through the bell's own step: written by hand it leaves the low health look on the screen. The gourd to its whole size
     -- as the game counts it, the extra drinks a skill node or a talisman gives counted in (GetMedicineTotalMaxUsage; the
     -- bench, 11-12: 4 with two extra drinks over a gourd of 2, and a real sit's own refill, the bag's RestoreQuickItems,
     -- filled it to 4): set to its base size (MaxTime), a partner's sit took those extra drinks away. Never below what it

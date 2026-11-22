@@ -8,7 +8,7 @@
 
 local VERSION = "1.7.4"
 -- The relay these scripts are written for: native/relay.hpp's PROTOCOL, the two bumped together (openLink asks main.dll's).
-local PROTOCOL = 6
+local PROTOCOL = 7
 local TAG = "[PBZCoop] "
 if (os.getenv("PBZCOOP_INSTANCE") or "1") ~= "1" then
     TAG = "[PBZCoop#" .. os.getenv("PBZCOOP_INSTANCE") .. "] "

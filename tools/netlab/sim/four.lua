@@ -2279,8 +2279,6 @@ local function rests()
     w:run(2)
     check(wh.env.PBZ.game.bossFightActive() and refreshes(wh) == before,
         "two players: the guest's bell rest leaves the host's own boss fight be, bar and enemies")
-    -- The guest sits at a bell during it: the fight starts over, the host rested (the gourd to its whole size, its extra
-    -- drink counted in) and the boss back to full health (the user, 11-12: "you heal back and the boss goes full"). Told.
     local wboss = Session.enemyOn(wh, "boss")
     local _, bossMax = Fake.health(wboss)
     Fake.setHealth(wboss, bossMax * 0.3)
@@ -2288,10 +2286,9 @@ local function rests()
     Fake.put(wh.gourd, "CurrentTime", 1)
     Session.sit(wg)
     w:run(2)
-    check(Fake.health(wboss) == bossMax and Fake.health(wh.pawn) == 1000 and field(wh.gourd, "CurrentTime") == 3
-        and count(wh.logs, "Status: your partner rested at a bell: you're rested, and so is the boss%.") == 1,
-        string.format("the guest sits during the host's boss fight: the boss back to full, the host rested (%d, gourd %d of 2 and "
-            .. "an extra), and told", Fake.health(wh.pawn), field(wh.gourd, "CurrentTime")))
+    check(Fake.health(wboss) == bossMax * 0.3 and Fake.health(wh.pawn) == 100 and field(wh.gourd, "CurrentTime") == 1
+        and count(wh.logs, "Status: .* rested at a bell") == 0,
+        "the guest sits during the host's boss fight: the boss, host health and gourd keep their values")
     allErrors(w)
 
     local t = party()
@@ -2928,16 +2925,12 @@ local function sits()
     s:run(2)
     check(count(b.sent, "^E SIT$") == 1, "a guest sits, and says so once")
     check(count(h.sent, "^E SIT") == 0 and count(a.sent, "^E SIT") == 0 and count(c.sent, "^E SIT") == 0, "and nobody says it again")
-    -- (Out of a boss fight of their own a partner's sit rests nobody: each player rests at their own sit, as in the game, the
-    -- user's rule of 11-12. It had healed everyone who was up and filled their gourds: a gourd held more drinks than it has,
-    -- or fewer with extra drinks, the 1.7.1 report's "5 uses to 1 use".)
-    check(Fake.health(h.pawn) == 100 and Fake.health(a.pawn) == 100 and field(a.gourd, "CurrentTime") == 0,
-        string.format("a partner's sit rests nobody else: health and gourds as they were (%d, %d, gourd %d)", Fake.health(h.pawn),
-            Fake.health(a.pawn), field(a.gourd, "CurrentTime")))
+    check(Fake.health(h.pawn) == 1000 and Fake.health(a.pawn) == 1000 and field(a.gourd, "CurrentTime") == 3,
+        "a partner's sit restores the health and gourds of other players on this map")
     Session.sit(c)
     s:run(2)
-    check(Fake.health(a.pawn) == 100 and field(a.gourd, "CurrentTime") == 0 and count(a.logs, "Status: .* rested at a bell") == 0,
-        "nor a second one, and with no boss fight nothing's said")
+    check(Fake.health(a.pawn) == 1000 and field(a.gourd, "CurrentTime") == 3 and count(a.logs, "Status: .* rested at a bell") == 2,
+        "a second sit leaves the gourd at capacity and announces the rest once")
     check(refreshes() == before, "and no world refreshes: the dead stay dead")
     Session.moveTo(c, 40000, 0)
     s:run(1)
@@ -2964,14 +2957,9 @@ local function sits()
     allErrors(t)
 end
 
--- Any sit puts the bosses of fights back to full health, in the world that runs them (the user, 11-12: "a sit should make boss
--- health go full i am scared people will abuse it"), and a player in a boss fight, their own or one they joined or struck, is
--- rested with it ("you heal back and the boss goes full"). A review found the boss half missing for a guest's own fight on a boss near the host: the
--- host's world runs it, the guest's copy follows its health only ever down, and the copy put back to full alone was taken
--- down again by the next line, the guest rested and told it was full.
 local function sitBosses()
     part("a sit and the bosses of fights still on")
-    local TIP = "Status: .* rested at a bell: you're rested, and so is the boss%."
+    local TIP = "Status: .* rested at a bell: your health and gourd are restored%."
     local function hp(a)
         return math.floor((Fake.health(a)) + 0.5)
     end
@@ -3000,11 +2988,8 @@ local function sitBosses()
         local before, hostBefore = hp(gb), hp(hb)
         Session.sit(h)
         s:run(3.3)
-        check(before < gmax and hostBefore < hmax and hp(hb) >= hmax - 1 and hp(gb) >= gmax - 1 and Fake.health(g.pawn) == 1000
-            and count(g.logs, TIP) == 1,
-            string.format("the guest's own fight on a boss by the host: the host sits, and it's full in both worlds, the "
-                .. "guest rested and told (host %d of %d from %d, guest %d of %d from %d; guest %d)", hp(hb), hmax, hostBefore,
-                hp(gb), gmax, before, Fake.health(g.pawn)))
+        check(before < gmax and hostBefore < hmax and hp(hb) == hostBefore and hp(gb) == before and Fake.health(g.pawn) == 100
+            and count(g.logs, TIP) == 0, "the host sits near the guest's boss: neither copy nor the fighter is healed")
         allErrors(s)
     end
     -- The same fight, the guest the one who sits (out of it, then back in): the host's boss full too, before the fight ends.
@@ -3038,8 +3023,8 @@ local function sitBosses()
         s:run(2)
         Session.sit(h)
         s:run(3)
-        check(hp(gb) >= gmax - 1 and count(g.logs, TIP) == 1,
-            string.format("the host far off, the guest's world running the boss: full, the guest told (%d of %d)", hp(gb), gmax))
+        check(hp(gb) == math.floor(gmax * 0.3 + 0.5) and count(g.logs, TIP) == 0,
+            "the distant host sits: the guest-run boss keeps its damage and the guest stays in the fight")
         allErrors(s)
     end
     -- A party: the host's fight with guests 2 and 3 in it (each has struck the boss), guest 4 sits elsewhere.
@@ -3070,15 +3055,11 @@ local function sitBosses()
         s:run(3)
         Session.sit(c)
         s:run(3)
-        -- (A helper in a fight is rested as its owner is: "you heal back and the boss goes full". A review, 11-12: they had
-        -- the boss full and nothing else.)
-        local function rested(pc)
-            return Fake.health(pc.pawn) == 1000 and field(pc.gourd, "CurrentTime") == 3 and count(pc.logs, TIP) == 1
+        local function stillFighting(pc)
+            return Fake.health(pc.pawn) == 100 and field(pc.gourd, "CurrentTime") == 0 and count(pc.logs, TIP) == 0
         end
-        check(hp(hb) >= hmax - 1 and count(h.logs, TIP) == 1 and rested(a) and rested(b),
-            string.format("a party: the host's fight with two guests in it, a third guest sits: the boss full (%d of %d), the host and "
-                .. "both guests helping in it rested and told (%d, gourd %d; %d, gourd %d)", hp(hb), hmax, Fake.health(a.pawn),
-                field(a.gourd, "CurrentTime"), Fake.health(b.pawn), field(b.gourd, "CurrentTime")))
+        check(hp(hb) == math.floor(hmax * 0.3 + 0.5) and count(h.logs, TIP) == 0 and stillFighting(a) and stillFighting(b),
+            "guest 4 sits: the host's boss and both helpers keep their health and gourds")
         allErrors(s)
     end
     -- A party: guest 2's own fight on a boss the host's world runs; guest 3 sits.
@@ -3098,15 +3079,15 @@ local function sitBosses()
         local _, amax = Fake.health(ab)
         Fake.setHealth(hb, hmax * 0.3)
         s:run(2)
+        local hostBefore, guestBefore = hp(hb), hp(ab)
         Session.sit(b)
         s:run(3)
-        check(hp(hb) >= hmax - 1 and hp(ab) >= amax - 1 and count(a.logs, TIP) == 1,
-            string.format("a party: guest 2's own fight run by the host's world, guest 3 sits: full in both worlds (%d, %d), guest 2 told",
-                hp(hb), hp(ab)))
+        check(hostBefore < hmax and hp(hb) == hostBefore and hp(ab) == guestBefore and count(a.logs, TIP) == 0,
+            string.format("guest 3 sits: guest 2's fight keeps its damage in both worlds (%d/%d to %d, %d/%d to %d, tips %d)",
+                hostBefore, hmax, hp(hb), guestBefore, amax, hp(ab), count(a.logs, TIP)))
         allErrors(s)
     end
-    -- A party's host down and waiting in its own fight (its bar went with its death), guests 2 and 3 fighting on: a sit, by
-    -- guest 4 or by guest 3 out of it, still puts the boss back to full in the host's world (a review, 11-12).
+    -- The host's bar is gone while its helpers continue.
     for _, sitter in ipairs({ 4, 3 }) do
         local s = Session.new(SIM_SCRIPTS, { "Host", "Guest", "Guest", "Guest" }, true, ENEMIES)
         s:run(4)
@@ -3134,18 +3115,17 @@ local function sitBosses()
         local held = field(h.deathWidget, "NotTick") == true
         Fake.setHealth(a.pawn, 120)
         Fake.put(a.gourd, "CurrentTime", 0)
+        local ab = Session.enemyOn(a, "boss")
+        local hostBefore, guestBefore = hp(hb), hp(ab)
         Session.sit(s.pcs[sitter])
         s:run(3.4)
-        local ab = Session.enemyOn(a, "boss")
         local _, amax = Fake.health(ab)
-        check(held and hp(hb) >= hmax - 1 and hp(ab) >= amax - 1 and Fake.health(a.pawn) == 1000
-            and field(a.gourd, "CurrentTime") == 3 and count(a.logs, TIP) == 1,
-            string.format("a party's host down and waiting in its own fight, guest %d sits: the boss full in the host's world (%d of %d) "
-                .. "and on guest 2 (%d), guest 2, helping in it, rested and told (%d, gourd %d)", sitter, hp(hb), hmax, hp(ab),
-                Fake.health(a.pawn), field(a.gourd, "CurrentTime")))
+        check(held and hostBefore < hmax and guestBefore < amax and hp(hb) == hostBefore and hp(ab) == guestBefore
+            and Fake.health(a.pawn) == 120 and field(a.gourd, "CurrentTime") == 0 and count(a.logs, TIP) == 0,
+            "the host is down and guest " .. sitter .. " sits: guest 2 continues with both boss copies still damaged")
         allErrors(s)
     end
-    -- Two players: the host sits during its own fight, which the guest struck: the guest's copy full, the guest rested and told.
+    -- The host sits during its own fight while the guest keeps fighting.
     do
         local s = Session.new(SIM_SCRIPTS, { "Host", "Guest" }, false, ENEMIES)
         s:run(4)
@@ -3166,17 +3146,25 @@ local function sitBosses()
         local before = hp(gb)
         Fake.setHealth(g.pawn, 100)
         Fake.put(g.gourd, "CurrentTime", 0)
+        Session.moveTo(h, -30000, 0)
+        h.hudLayout:UnRegisterBossHPBar(hb)
         Session.sit(h)
         s:run(3)
         local _, gmax = Fake.health(gb)
-        check(before < gmax - 1 and hp(gb) >= gmax - 1 and hp(hb) >= hmax - 1 and Fake.health(g.pawn) == 1000
-            and field(g.gourd, "CurrentTime") == 3 and count(g.logs, TIP) == 1,
-            string.format("the host sits in its own fight the guest struck: full in both worlds (%d, %d), the guest helping in it rested "
-                .. "and told (%d, gourd %d)", hp(hb), hp(gb), Fake.health(g.pawn), field(g.gourd, "CurrentTime")))
+        check(before < gmax - 1 and hp(gb) == before and hp(hb) == math.floor(hmax * 0.3 + 0.5) and Fake.health(g.pawn) == 100
+            and field(g.gourd, "CurrentTime") == 0 and count(g.logs, TIP) == 0 and g.env.PBZ.net.partnerBosses["sp:boss"],
+            "the host sits: its helper keeps the boss fight, health and gourd")
+        Session.die(g)
+        g.hudLayout:UnRegisterBossHPBar(gb)
+        s:run(6)
+        Session.respawned(g)
+        Session.revive(g)
+        s:run(12)
+        check(hp(hb) == hmax, "the last helper dies after the host sits: the next attempt starts at full health")
         allErrors(s)
     end
     -- A party, the boss far from the host (each guest's copy is the boss in its world): guest 2's fight, guest 3 struck it;
-    -- guest 3 sits: its own copy full too.
+    -- guest 3 sits while guest 2 continues.
     do
         local s = Session.new(SIM_SCRIPTS, { "Host", "Guest", "Guest", "Guest" }, true, ENEMIES)
         s:run(4)
@@ -3198,9 +3186,8 @@ local function sitBosses()
         s:run(3)
         Session.sit(b)
         s:run(3)
-        check(hp(bb) >= bmax - 1 and hp(ab) >= amax - 1,
-            string.format("the boss far from the host, guest 3 in guest 2's fight sits: its own copy full (%d), and guest 2's (%d)",
-                hp(bb), hp(ab)))
+        check(hp(bb) == math.floor(bmax * 0.3 + 0.5) and hp(ab) == math.floor(amax * 0.3 + 0.5),
+            "guest 3 sits during guest 2's distant fight: both copies keep their damage")
         allErrors(s)
     end
     -- The guest's own fight on a boss the host's world runs, over with the boss alive (the guest walked out: its bar down,
@@ -3224,6 +3211,46 @@ local function sitBosses()
         check(over and hp(hb) >= hmax - 1,
             string.format("the guest's fight on a boss the host's world runs, over with the boss alive (%s), the guest sits: the host's "
                 .. "boss full (%d of %d)", tostring(over), hp(hb), hmax))
+        allErrors(s)
+    end
+    -- The dead host's helper stays in A while B's last fighter sits, 90 m away on the same map.
+    do
+        local s = party({
+            { "bossa", "BP_Monster_Boss_C", 300, 300, 100, 5000, 400, true },
+            { "bossb", "BP_Monster_Boss_C", 9000, 0, 100, 5000, 400, true },
+        })
+        local h, helper, sitter = s.pcs[1], s.pcs[2], s.pcs[3]
+        spread(s)
+        s:run(2)
+        local a = Session.enemyOn(h, "bossa")
+        h.hudLayout:RegisterBossHPBar(a)
+        s:run(2)
+        Session.moveTo(sitter, 8800, 0)
+        s:run(3)
+        local b = Session.enemyOn(sitter, "bossb")
+        sitter.hudLayout:RegisterBossHPBar(b)
+        s:run(3)
+        local copy = Session.enemyOn(helper, "bossa")
+        helper.env.PBZ.game.noteLocalMove()
+        Fake.setHealth(copy, hp(copy) - 10)
+        s:run(2)
+        local _, maxA = Fake.health(a)
+        local _, maxB = Fake.health(b)
+        Fake.setHealth(a, maxA * 0.3)
+        sitter.env.PBZ.game.noteLocalMove()
+        Fake.setHealth(b, maxB * 0.3)
+        s:run(3)
+        Session.die(h)
+        h.hudLayout:UnRegisterBossHPBar(a)
+        s:run(6)
+        Fake.setHealth(helper.pawn, 120)
+        local beforeA, beforeCopy, beforeB = hp(a), hp(copy), hp(b)
+        Session.sit(sitter)
+        s:run(4)
+        check(beforeA < maxA and hp(a) == beforeA and hp(copy) == beforeCopy and Fake.health(helper.pawn) == 120
+            and beforeB < maxB and hp(b) == maxB,
+            string.format("a surviving helper keeps A damaged while the last fighter leaves B (%d to %d, copy %d to %d, B %d to %d/%d)",
+                beforeA, hp(a), beforeCopy, hp(copy), beforeB, hp(b), maxB))
         allErrors(s)
     end
     -- With PvP on (no match), the host in a boss fight of its own: a partner's sit changes nothing there, as before.
@@ -12148,10 +12175,10 @@ local function offAndBack()
 
     local lang = dofile(SIM_SCRIPTS .. "/lang.lua")()
     lang.set("Chinese")
-    check(lang.say("your partner rested at a bell: you're rested, and so is the boss.") == "队友在钟旁休息了:你恢复了,首领也恢复了。",
+    check(lang.say("your partner rested at a bell: your health and gourd are restored.") == "队友在钟旁休息了:你的生命和葫芦已恢复。",
         "the bell's tips in Chinese")
     check(lang.say("your partner rested at a bell: you'll join them.") == "队友在钟旁休息了:你会前往队友身边。", "both of them")
-    check(lang.say("player 3 (gold) rested at a bell: you're rested, and so is the boss.") == "玩家 3(金) 在钟旁休息了:你恢复了,首领也恢复了。",
+    check(lang.say("player 3 (gold) rested at a bell: your health and gourd are restored.") == "玩家 3(金) 在钟旁休息了:你的生命和葫芦已恢复。",
         "and by name")
     check(lang.say("Couldn't start: couldn't find the host address abc") == "无法启动:找不到房主地址 abc", "and why the relay couldn't start")
     check(lang.say("Couldn't start: Steam isn't ready: is it running and logged in?") == "无法启动:Steam 还没准备好,请确认它已运行并已登录。", "for Steam too")
@@ -12165,7 +12192,7 @@ local function offAndBack()
             end
         end
     end
-    th.hudLayout:RegisterBossHPBar(Session.enemyOn(th, "boss"))     -- (a partner's sit tells only a boss fight's player)
+    Fake.setHealth(th.pawn, 100)
     t:run(1)
     th.env.PBZ.coop.handlers.SIT()
     t:run(3.5)
@@ -15090,8 +15117,8 @@ local function arabic()
     -- signed, between "partner connected" and its full stop.)
     local BUILT = {
         ["your partner rested at a bell: you'll join them."] = { "your partner", " rested at a bell: you'll join them." },
-        ["your partner rested at a bell: you're rested, and so is the boss."] =
-            { "your partner", " rested at a bell: you're rested, and so is the boss." },
+        ["your partner rested at a bell: your health and gourd are restored."] =
+            { "your partner", " rested at a bell: your health and gourd are restored." },
         ["your partner turned co-op sync off."] = { "your partner", " turned co-op sync off." },
         ["partner connected."] = { "partner connected", "." },
         ["partner connected, signed."] = { "partner connected", ", signed", "." },
@@ -15278,7 +15305,7 @@ local function arabic()
     for slot = 1, 6 do
         local p = name("term.player" .. slot)
         for _, id in ipairs({ "tip.party.down", "tip.party.back", "tip.party.cutscene", "tip.party.other_map",
-            "tip.party.rest_join", "tip.party.rest_boss", "tip.party.sync_off" }) do
+            "tip.party.rest_join", "tip.party.rest_here", "tip.party.sync_off" }) do
             try(id, made(id, p[1]), fill(id, p[2]))
         end
         try("tip.party.far", made("tip.party.far", p[1], 212), fill("tip.party.far", p[2], 212))
@@ -15402,8 +15429,8 @@ local function arabic()
         end
     end
     verdict(string.format("Chinese says the same with the Arabic loaded: %d lines", #english))
-    check(zh.say("Not connected.") == "未连接。" and zh.say("player 3 (gold) rested at a bell: you're rested, and so is the boss.")
-        == "玩家 3(金) 在钟旁休息了:你恢复了,首领也恢复了。" and zh.say("Couldn't start: couldn't find the host address abc")
+    check(zh.say("Not connected.") == "未连接。" and zh.say("player 3 (gold) rested at a bell: your health and gourd are restored.")
+        == "玩家 3(金) 在钟旁休息了:你的生命和葫芦已恢复。" and zh.say("Couldn't start: couldn't find the host address abc")
         == "无法启动:找不到房主地址 abc", "(and still its own Chinese)")
 
     -- Latin an Arabic line keeps: the names of things, then (KEPT) the ini's own words, file names, a command and what it
