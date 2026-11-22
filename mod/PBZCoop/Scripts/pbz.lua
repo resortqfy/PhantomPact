@@ -5806,9 +5806,7 @@ return function(api)
 
     ------------------------------------------------------------------ what the game gives
 
-    -- Whatever the game gives one player, the other gets too: the same items, at any distance, wherever they came from. So
-    -- it's the backpack's own ways in that are watched. Not what a player buys or makes, nor what this mod adds. The same
-    -- thing given on both PCs within a moment (a boss's reward, a chest both opened) stays one each.
+    -- Shared rewards enter through the backpack. Ordinary world containers pay only the interacting player.
     local BACKPACK = "/Script/ProjectPBZ.PBZBackPackSubsystem"
     local SAME_GIFT_S = 15
     local OWN_ITEM_S = 0.2          -- what comes this soon after buying or making something is that
@@ -5843,11 +5841,35 @@ return function(api)
         return true
     end
 
+    local CHEST_CLASS, PILE_CLASS = "BP_Chest_C", "BP_Rubbish_C"
+
+    local function interactionTarget(pawn)
+        local component = pawn:GetComponentByClass(StaticFindObject("/Script/ProjectPBZ.PBZInteractComponent"))
+        if valid(component) then
+            local actor = component:GetInteractingActor()
+            if valid(actor) then
+                return actor
+            end
+        end
+    end
+
     local function given(id, count, kind, send)
         -- (Nor in a PvP match: there's no loot in one, and what it adds, a lent weapon, is the match's own: the bench, 11-08.)
         if game.granting or os.clock() < ownUntil or id == "None" or count < 1 or game.keptApart(id)
             or (api.arena and api.arena.match) then
             return
+        end
+        local quest = game.isNarrative(id)
+        -- Gear polling has no interaction context. Only native grant hooks can identify a container.
+        if not quest and kind ~= "medicine" and kind ~= "accessory" then
+            local _, pawn = api.getPlayer1()
+            local actor = pawn and interactionTarget(pawn)
+            if actor then
+                local source = className(actor)
+                if source == "PBZPickupActor" or source == CHEST_CLASS or source == PILE_CLASS then
+                    return
+                end
+            end
         end
         if game.oneOfAKind(id) then
             game.hadStory(id, true)
@@ -6013,7 +6035,7 @@ return function(api)
         if gearKnown then
             gearKnown[id] = true
         end
-        if pickup == nil then
+        if pickup == nil and game.isNarrative(id) then
             -- (Old ones off as each comes: only a ground pickup's word took them off, and with none for long the list grew
             -- by every share; the review of 11-10.)
             for i = #game.sharesGiven, 1, -1 do
@@ -6080,15 +6102,13 @@ return function(api)
     -- a story item, waited for as a ground pickup's is, and given from ours if its share never comes. One who has it already
     -- sends none (game.storyAgain): a player without it had none at all (Yuer's herbs lie in piles), a review of 18d340e.
     function game.storyCopyGoes(item, from)
-        if game.oneOfAKind(item) then
-            game.awaitShare(item, 1, from ~= true and from or nil, true)
-        end
+        game.awaitShare(item, 1, from ~= true and from or nil, true)
     end
     -- (A partner's: their share alone answers it, where who it is is known. count: how many their game gave, for the copy's.)
     -- (copy: true, our copy was here and went with the word: a story item is given from it too, as below; a string, our copy
     -- not loaded, named: a story item is given from it as it goes, game.copyWent.)
     function game.awaitShare(id, count, from, copy)
-        if type(id) ~= "string" or id == "?" or id == "None" then
+        if not game.isNarrative(id) then
             return
         end
         local now = os.clock()
@@ -6165,7 +6185,7 @@ return function(api)
                 end
             elseif type(s.copy) == "string" and game.oneOfAKind(s.id) then
                 game.copyOwed[s.copy] = s.id
-            elseif game.itemKinds and game.itemKinds[s.id] and (s.copy == true or not game.oneOfAKind(s.id)) then
+            elseif s.copy == true or not game.oneOfAKind(s.id) then
                 game.giveFromCopy(pawn, s.id, s.count or 1)
                 s.given, s.at = true, now
                 kept[#kept + 1] = s
@@ -6417,9 +6437,8 @@ return function(api)
                 -- bShowUIOnSubsequentGet is no sign: True on all 85.)
                 local okP, parts = pcall(col, "IntegrationItemNum")
                 parts = okP and parts or {}
-                local all, flags, many = {}, {}, {}  -- (every item's kind: game.pickupSharesDue gives only these)
+                local flags, many = {}, {}
                 for i = 1, #ids do
-                    all[ids[i]] = kinds[i] or "?"
                     if (kinds[i] or ""):find("Narrative", 1, true) then
                         set[ids[i]] = true
                     end
@@ -6428,7 +6447,6 @@ return function(api)
                         many[ids[i]] = true
                     end
                 end
-                game.itemKinds = all
                 game.heldFlags = flags  -- (a thing's own flag while it's held: grantLoot)
                 game.storyMany = many
                 game.narrative = set
@@ -6778,10 +6796,7 @@ return function(api)
         end
     end
 
-    -- Each world has its own copy of every chest and rubbish pile, named alike. Its items reach the partner as above, so
-    -- their copy only has to stop paying: a chest counts as opened, a pile goes, as a pickup's copy does. One that isn't
-    -- loaded there goes as soon as it is. (A chest that's locked until a boss dies stays locked for both.)
-    local CHEST_CLASS, PILE_CLASS = "BP_Chest_C", "BP_Rubbish_C"
+    -- Quest containers retire across worlds; ordinary containers remain available to each player.
     local PILE_SEARCHED = "/Game/PBZContent/Blueprint/Item/Device/BP_Rubbish.BP_Rubbish_C:OnInteract"
     local CHEST_WATCH_CM = 2000     -- a chest that opens after being this close to the player: they opened it
     local closedNear, retiring, searched = {}, {}, {}
@@ -6933,16 +6948,6 @@ return function(api)
         chests.owed[name] = true
     end
 
-    -- The address of what this player is opening right now, if anything. (Not the chest's InteractPlayer: that's whoever
-    -- stands by it.)
-    function chests.opening(pawn)
-        local ok, addr = pcall(function()
-            local thing = pawn:GetComponentByClass(StaticFindObject("/Script/ProjectPBZ.PBZInteractComponent")):GetInteractingActor()
-            return valid(thing) and thing:GetAddress() or nil
-        end)
-        return ok and addr or nil
-    end
-
     -- Host: someone (re)joined. The open chests here are named again at the next look.
     function game.offerChestsAgain()
         chests.offeredAt = -1e9
@@ -7059,7 +7064,8 @@ return function(api)
             offered = {}
             chests.offered, chests.offeredAt = offered, os.clock()
         end
-        local busy = next(owed) ~= nil and chests.opening(pawn) or nil
+        local opening = next(owed) and interactionTarget(pawn)
+        local busy = opening and opening:GetAddress()
         for _, c in ipairs(FindAllOf(CHEST_CLASS) or {}) do
             if valid(c) then
                 local name = c:GetFName():ToString()
@@ -7072,18 +7078,19 @@ return function(api)
                         offered[name] = true
                         offer(name)
                     end
-                elseif retiring[name] then
-                    local from = retiring[name]
-                    retiring[name] = nil
-                    local quest, item = game.holdsQuestItem(c)
-                    if not quest then
-                        game.storyCopyGoes(item, from)
-                        pcall(function() c:SwitchWithoutPlaySequence() end)
-                        chests.showOpen(c, false)
-                    end
                 else
                     local paid = false
-                    if owed[name] and pays > 0 and c:GetAddress() ~= busy then    -- (not one they're opening)
+                    if retiring[name] then
+                        local from = retiring[name]
+                        retiring[name] = nil
+                        local quest, item = game.holdsQuestItem(c)
+                        if quest then
+                            game.storyCopyGoes(item, from)
+                            pcall(function() c:SwitchWithoutPlaySequence() end)
+                            chests.showOpen(c, false)
+                            paid = true
+                        end
+                    elseif owed[name] and pays > 0 and c:GetAddress() ~= busy then
                         pays = pays - 1
                         paid = chests.pay(c, name, pawn)
                         if paid then
@@ -7104,7 +7111,7 @@ return function(api)
                     local from = retiring[pile]
                     retiring[pile] = nil
                     local quest, item = game.holdsQuestItem(p)
-                    if not quest then
+                    if quest then
                         game.storyCopyGoes(item, from)
                         pcall(function() p:K2_DestroyActor() end)
                     end
@@ -7113,9 +7120,7 @@ return function(api)
         end
     end
 
-    -- A pile or chest whose content is a quest item ("<map>.K_03001": a key, the Snake Tongue, a token half). Opened by a
-    -- partner, it stays here for this player to open: taken away, the quest item went with it, never shared (quest items
-    -- aren't), and the quest was stuck until they swapped host and guest (issue #15).
+    -- Container row names end in the item identifier (for example, a map prefix followed by a key).
     function game.holdsQuestItem(c)
         local id = nil
         pcall(function() id = c["Loot Item ID"]:ToString() end)
@@ -7123,20 +7128,19 @@ return function(api)
             pcall(function() id = c["Item ID"]:ToString() end)
         end
         local item = type(id) == "string" and id:match("([^%.]+)$") or nil
-        return item ~= nil and item ~= "None" and game.keptApart(item), item
+        return game.shareQuestItems and game.isNarrative(item), item
     end
 
     -- from: who searched it (a party's slot), or nil.
     function game.partnerOpened(name, from)
         local isPile = name:find("^BP_Rubbish") ~= nil
-        closedNear[name] = nil
         for _, c in ipairs(FindAllOf(isPile and PILE_CLASS or CHEST_CLASS) or {}) do
             if valid(c) and c:GetFName():ToString() == name then
                 local quest, item = game.holdsQuestItem(c)
-                if quest then
-                    log("The other player opened " .. name .. ": it holds a quest item (" .. tostring(item) .. "), left here for you.")
+                if not quest then
                     return
                 end
+                closedNear[name] = nil
                 -- (Only one of ours that goes now: a chest open here already paid this player before.)
                 if isPile then
                     game.storyCopyGoes(item, from)
