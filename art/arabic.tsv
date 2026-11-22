@@ -147,7 +147,7 @@ tip.partner.f3_there	 F3 takes you there.	 اضغط F3 للانتقال إلى �
 tip.partner.rest_join	your partner rested at a bell: you'll join them.	استراح شريكك عند جرس: ستنتقل إليه.	you're dead or waiting out a boss fight, so you're brought to them
 tip.partner.rest_here	your partner rested at a bell: your health and gourd are restored.	استراح شريكك عند جرس، واستعدت صحتك وامتلأت قرعتك.	health restored and gourd refilled outside combat
 tip.partner.sync_off	your partner turned co-op sync off.	أوقف شريكك مزامنة اللعب التعاوني.	
-tip.partner.bag	your bag now has what your partner's has (%d new).	صارت حقيبتك تحوي ما في حقيبة شريكك (جديد: %1).	%1 = things added; the count after a label needs no agreement (glossary)
+tip.partner.bag	story items received from the host: %d.	عدد عناصر القصة المستلمة من المضيف: %1.	%1 = things added; the count after a label needs no agreement (glossary)
 tip.partner.quest_step	your partner finished a quest step you were on: done for you too.	أنهى شريكك مرحلة من المهمة كنت فيها، فاكتملت لك أيضًا.	no Chinese row (English in Chinese mode); the host hears it when a guest finishes a step
 tip.partner.story_caught	your story caught up with the host's: %d steps.	لحقت قصتك بقصة المضيف (الخطوات: %1).	%1 = steps, 1 too (the English pattern takes 'step' or 'steps'); the count after a label needs no agreement (glossary)
 tip.party.down	%s is down.	سقط %1.	%1 = the player's name (term.player*: المضيف (بنفسجي), اللاعب 2 (أخضر)...): masculine verbs agree with both

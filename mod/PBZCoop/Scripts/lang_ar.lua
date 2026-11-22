@@ -123,7 +123,7 @@ return {
         { " F3 takes you there%.$", " اضغط F3 للانتقال إلى هناك." },  -- tip.partner.f3_there
         { "^partner connected %(ping (%d+) ms%), signed%.$", "اتصل شريكك (البينغ %1 مللي ثانية)، والاتصال محمي بكلمة المرور." },  -- tip.conn.connected_ping_signed
         { "^partner connected %(ping (%d+) ms%)%.$", "اتصل شريكك (البينغ %1 مللي ثانية)." },  -- tip.conn.connected_ping
-        { "^your bag now has what your partner's has %((%d+) new%)%.$", "صارت حقيبتك تحوي ما في حقيبة شريكك (جديد: %1)." },  -- tip.partner.bag
+        { "^story items received from the host: (%d+)%.$", "عدد عناصر القصة المستلمة من المضيف: %1." },  -- tip.partner.bag
         { "^co%-op couldn't start: (.*)$", "تعذّر بدء اللعب التعاوني: %1" },  -- tip.conn.couldnt_start
         { "^Steam couldn't connect: (.+)%. See Connection problems in the install guide%.$", "تعذّر اتصال Steam: %1. راجع «Connection problems» في دليل التثبيت." },  -- tip.conn.steam_couldnt
         { "^settings differ from your partner's: (.*)$", "تختلف إعداداتك عن إعدادات شريكك: %1" },  -- tip.conn.settings_differ
