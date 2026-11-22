@@ -388,6 +388,7 @@ return function(api)
             return
         end
         net.partnerDowned = true
+        net.foughtBosses = nil
         tip("Your partner is down: strike them to bring them back.")
         if down then
             local pc, pawn = api.getPlayer1()
@@ -432,9 +433,7 @@ return function(api)
         if kind == "gone" then
             partnerBack()
         end
-        -- (A sit of this player's own clears the count, and so does a partner's that rests them in a boss fight (coop.lua says
-        -- "sit" then); any other partner's sit ("partnersit") does nothing here, and one who's down stays down: their
-        -- partner's strikes bring them back, or the timer runs out (the user's pick, 11-12). It had got them up.)
+        -- Both a player's own rest and a shared regional rest clear their down count.
         if kind == "bell" or kind == "sit" then
             downs = 0
         end

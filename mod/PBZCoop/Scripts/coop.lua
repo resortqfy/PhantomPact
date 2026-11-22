@@ -149,6 +149,9 @@ return function(api)
         guestRuns = {},           -- host: enemy id -> true while the guest's game runs it (see handover)
         guestLines = {},          -- host: enemy id -> the guest's latest record of one its game runs
         mine = {},                -- client: host enemy id -> true while this game runs it (see handover)
+        bellBosses = {},          -- names of bosses met in this world, including fights left alive
+        continuedAtBell = {},     -- mirrored fights whose starter sat while someone else stayed
+        toldBossNames = {},       -- names sent with this player's F state
         fightOf = {},             -- party: boss id -> the slot of whoever started that fight
         stats = { sent = 0, received = 0, applied = 0, undone = 0 },
     }
@@ -801,6 +804,7 @@ return function(api)
     local function endBossFight(name, actor)
         local at = net.foggedBosses[name]
         net.foggedBosses[name] = nil
+        net.continuedAtBell[name] = nil
         net.partnerBosses[name] = nil
         net.pendingBosses[name] = nil
         net.struck[name] = nil
@@ -2874,6 +2878,7 @@ return function(api)
 
     -- The partner has just (re)started sync: it knows nothing yet. It hears again what enemies are, and what's dead.
     handlers.S = function(_, from)
+        peerOf(from).foughtBosses = nil
         if isClient() and from then
             -- Another guest of the party started over, or someone new took that slot (the host passes it on): only what
             -- this player showed them is news to them. The host's world, its kills and what the two ran is as it was.
@@ -3803,8 +3808,7 @@ return function(api)
     --   Client died: only the client's world refreshed. The host's world, and its boss fight, go on untouched;
     --     the client's copies of what the host already killed are killed again, and a boss fight the host is
     --     still in is shown again (bar and fog walls).
-    local restListeners = {}   -- name -> function(kind): a rest, here or the partner's (revive.lua): bell, death, sit (this
-                                -- player's own, or a partner's that rests them in a boss fight), partnersit (any partner's), gone
+    local restListeners = {}   -- bell, death, sit (local or shared rest), partnersit (a partner sat), gone
 
     local function restEvent(kind)
         for _, fn in pairs(restListeners) do
@@ -4065,7 +4069,8 @@ return function(api)
     end
 
     handlers.R = function(kind, from)
-        peerOf(from).fights = false     -- (that player's fight is over, and a bar left up there can't say so yet)
+        local rested = peerOf(from)
+        rested.fights, rested.foughtBosses = false, nil
         countFights()
         -- A guest hearing another guest's rest, passed on: whether the host's world refreshed for it is the host's to say
         -- (RH). Taken as so, the host's kills were forgotten and this world refreshed when the host's hadn't, its enemies
@@ -4178,46 +4183,42 @@ return function(api)
         return false
     end
 
-    -- Any sit: the bosses of fights still on back to full health, in the world that runs them, and this world's copies of
-    -- the fights this player is in. True if this player is in one. Their own (a bar of this game's); the ones they started
-    -- (net.bossesTold: its bar goes with their death, the fight going on with the others, the boss still this world's); on
-    -- the host every partner's fight, run on this world's actor; and a partner's fight they joined or struck, on its copy
-    -- here (the copy is the boss when the host is far off). Reviews, 11-12: a guest's own fight on a boss the host's world
-    -- runs, its copy put back alone and taken down again by the next line, the guest told it was full; a party's host down
-    -- and waiting in its own fight, its boss left as it was; a guest's copy of a fight far from the host, the same.
-    function net.sitBossesToFull()
-        local inFight = false
-        for _, boss in ipairs(net.ownBosses()) do
-            net.bossFull(boss)
-            inFight = true
+    function net.foughtAtBell(name, localFights)
+        if localFights[name] then
+            return true
         end
-        for name in pairs(net.bossesTold or {}) do
-            net.bossFull(enemyByName[name])
-        end
-        -- (On the host, a partner's fight this world ran, ended with its boss alive: they walked out or died, the boss left
-        -- as it was here, and a sit then back in found it so. A review, 11-12. A fresh one is full already.)
-        for name in pairs(isHost() and net.bossesSeen or {}) do
-            net.bossFull(enemyByName[name])
-        end
-        for name in pairs(net.partnerBosses) do
-            local mine = net.joinedBoss == name or net.struck[name]
-            if mine or isHost() then
-                net.bossFull(enemyByName[name])
-            end
-            if mine then
-                inFight = true
+        for _, p in ipairs(partners()) do
+            if p.foughtBosses and p.foughtBosses[name] and net.upHere(p) then
+                return true
             end
         end
-        return inFight
+        return false
     end
 
-    -- A sit at a bell brings everyone together: whoever's dead or watching a fight comes to the one who sat. Anyone else is
-    -- rested only in a boss fight of their own, the fight starting over: they're rested and the boss is back to full health
-    -- (the user, 11-12: "you heal back and the boss goes full"); out of one nothing changes for them, each resting at their
-    -- own sit, as in the game ("Nothing, own sit only"). One who's down stays down (their pick). Any sit puts the bosses of
-    -- fights back to full health, in the world that runs them ("a sit should make boss health go full i am scared people
-    -- will abuse it": a sit, then back into the fight). It says the sitter's fight is over too, or a bar left up there would
-    -- hold a partner's respawn for good.
+    function net.bossNetworkName(boss, addr)
+        for name, actor in pairs(enemyByName) do
+            if valid(actor) and actor:GetAddress() == addr then
+                return name
+            end
+        end
+        return enemyName(boss, addr)
+    end
+
+    function net.sitBossesToFull(localFights)
+        local bosses = {}
+        for name in pairs(net.bellBosses) do
+            bosses[name] = enemyByName[name]
+        end
+        for _, boss in ipairs(net.ownBosses()) do
+            bosses[net.bossNetworkName(boss, boss:GetAddress())] = boss
+        end
+        for name, boss in pairs(bosses) do
+            if not net.foughtAtBell(name, localFights) then
+                net.bossFull(boss)
+            end
+        end
+    end
+
     local function onLocalSit()
         if net.arena then
             if api.arena and api.arena.restDuring then     -- (a bell in a PvP match heals nobody else: it's a forfeit)
@@ -4225,19 +4226,20 @@ return function(api)
             end
             return
         end
-        -- (Not a bell's rest that came with this player's respawn: told as a sit, it put the host's boss back at full health
-        -- (handlers.SIT). The review of the report "After my teammate died, he instantly respawned" on 1.6.6.)
+        -- Respawning also triggers the bell hook; only a deliberate rest is shared.
         if net.deadSince ~= nil or os.clock() - (net.upAt or -1e9) < 3 then
             log("A bell's rest came with this player's respawn: not told as a sit.")
             return
         end
         restEvent("sit")
         if not net.pvp then
-            net.sitBossesToFull()       -- (with PvP on a partner's sit was never heard of: as before)
+            net.sitBossesToFull({})
         end
         if game.resetBosses then
             game.resetBosses()
         end
+        net.struck, net.toldBossNames = {}, {}
+        net.joinedBoss, net.joinedWith, net.joinedFar = nil, nil, nil
         net.fightHereAt = nil
         log("Sat at a bell: telling the other player.")
         sendEvent("SIT")
@@ -4245,33 +4247,46 @@ return function(api)
 
     handlers.SIT = function(_, from)
         local p = peerOf(from)
-        p.fights = false
+        p.fights, p.foughtBosses = false, nil
         countFights()
-        restEvent("partnersit")         -- (not "sit": no rest here but a boss fight's, revive.lua's down count included)
-        -- (Before the sitter's fights end here: theirs is reset too, a sit then back in finding it full, and this player's
-        -- part in it is still known. Not with PvP on, nor in a match: a partner's sit did nothing there, as before.)
-        local inFight = not (net.pvp or net.arena) and net.sitBossesToFull()
-        endFights(net.party and p.number or nil)
+        restEvent("partnersit")
         local _, pawn = getPlayer1()
-        if net.pvp or not valid(pawn) then
+        local present = valid(pawn)
+        local dead = present and game.isDead(pawn)
+        local down = api.revive.isDown()
+        local fights = {}
+        if present and not dead and not down and not net.watchingFight then
+            if not net.fightingHere(pawn, fights) and net.toldFighting then
+                fights = net.toldBossNames
+            end
+        end
+        local regional = not (net.pvp or net.arena) and sameMap(p.target)
+        if regional then
+            net.sitBossesToFull(fights)
+        end
+        for name in pairs(net.partnerBosses) do
+            if not net.party or net.fightOf[name] == p.number then
+                if not (net.pvp or net.arena) and net.foughtAtBell(name, fights) then
+                    net.continuedAtBell[name] = true
+                else
+                    endBossFight(name, enemyByName[name])
+                    net.fightOf[name] = nil
+                end
+            end
+        end
+        if net.pvp or not present then
             return
         end
         local who = net.party and PLAYERS[p.number].name or "your partner"
-        if game.isDead(pawn) or net.watchingFight then
-            if not net.partnerFighting then       -- (with more than two, someone else's fight can still be on)
+        if dead or net.watchingFight then
+            if not net.partnerFighting then
                 api.partner.comeTo(p)
                 api.status.notify("rest", who .. " rested at a bell: you'll join them.")
             end
-        elseif inFight and not (api.revive and api.revive.isDown and api.revive.isDown()) then
-            -- In a boss fight the fight starts over: their own, or a partner's they joined or struck (a helper in the host's
-            -- fight has no boss of their own here: a review, 11-12). Rested (health, the gourd to its whole size) as the boss
-            -- went back to full above (the user, 11-12: "you heal back and the boss goes full"). Out of one, nothing: a
-            -- partner's sit refilled every gourd, so a gourd held more drinks than it has (or, with extra drinks, fewer), the
-            -- 1.7.1 report's "5 uses to 1 use".
+        elseif regional and not down and not next(fights) then
             game.restHere(pawn)
-            restEvent("sit")            -- (rested as a sit would: Revive's down count cleared too, as 1d53bad's sit did)
-            log("The other player sat at a bell during your boss fight: you're rested, and so is the boss.")
-            api.status.notify("rest", who .. " rested at a bell: you're rested, and so is the boss.")
+            restEvent("sit")
+            api.status.notify("rest", who .. " rested at a bell: your health and gourd are restored.")
         end
         log("The other player sat at a bell.")
     end
@@ -4755,8 +4770,7 @@ return function(api)
             local own = enemyByName[name]
             if valid(own) and not game.isDead(own) and game.bossAt and game.bossAt(own:GetAddress(), own)
                 and not (game.isMirrorBar and game.isMirrorBar(own)) then
-                net.bossesSeen = net.bossesSeen or {}
-                net.bossesSeen[name] = true     -- (any sit puts it back to full health: net.sitBossesToFull)
+                net.bellBosses[name] = true
                 log("The other player started a boss fight with " .. name .. " as this game did: it stays this game's own.")
                 return
             end
@@ -4783,10 +4797,7 @@ return function(api)
             net.pendingDeaths[name] = nil
         end
         net.partnerBosses[name] = true
-        if isHost() then
-            net.bossesSeen = net.bossesSeen or {}
-            net.bossesSeen[name] = true     -- (any sit puts it back to full health, the fight over or not: net.sitBossesToFull)
-        end
+        net.bellBosses[name] = true
         if net.party then
             net.fightOf[name] = from or 1
         end
@@ -4811,13 +4822,8 @@ return function(api)
         if net.arena then
             return              -- (an arena's boss, parked for a PvP match: no fight to tell anyone of)
         end
-        local addr, name = actor:GetAddress(), enemyName(actor)
-        for id, e in pairs(enemyByName) do
-            if valid(e) and e:GetAddress() == addr then
-                name = id
-                break
-            end
-        end
+        local addr = actor:GetAddress()
+        local name = net.bossNetworkName(actor, addr)
         -- (Not known by its spawner yet, just spawned: the ids are read again first. Told by its actor name, the other
         -- player's game had no such enemy and never showed the fight: AHua on the bench.)
         if not name:find("^sp:") and game.refreshEnemyIds then
@@ -4874,8 +4880,7 @@ return function(api)
         if not net.partnerBosses[name] then
             sendEvent("B", name)
             net.fightRetellAt = os.clock() + 4.0        -- (a bar that only blinked: tellFight)
-            net.bossesTold = net.bossesTold or {}
-            net.bossesTold[name] = true     -- (any sit puts it back to full health, this player down or not: net.sitBossesToFull)
+            net.bellBosses[name] = true
             if isClient() then
                 net.hostBosses[name] = true    -- the host fights it too from now on
                 net.ownAnnounced = net.ownAnnounced or {}
@@ -4890,13 +4895,8 @@ return function(api)
         if isClient() or not valid(boss) then
             return
         end
-        local addr, name = boss:GetAddress(), enemyName(boss)
-        for id, e in pairs(enemyByName) do
-            if valid(e) and e:GetAddress() == addr then
-                name = id
-                break
-            end
-        end
+        local addr = boss:GetAddress()
+        local name = net.bossNetworkName(boss, addr)
         if net.partnerBosses[name] then
             net.partnerBosses[name], net.fightOf[name] = nil, nil
             if net.joinedBoss == name then
@@ -5003,8 +5003,15 @@ return function(api)
             local name = game.mapName and game.mapName(pawn) or "?"
             -- (A failed read isn't a map: as a number it would pass for one, and hide the ghost on the other PC.)
             if name ~= slow.map and name ~= "?" then
+                if slow.map then
+                    for boss in pairs(net.toldBossNames) do
+                        sendEvent("F", "-", boss)
+                    end
+                    net.toldBossNames = {}
+                end
                 slow.map = name
                 net.localMap = link.map(name)
+                net.bellBosses, net.continuedAtBell = {}, {}
                 reach.list, reach.at, reach.near = {}, 1, {}
                 net.matchSticky = {}    -- (the old map's addresses are free for new enemies: a late K must not find them)
                 net.deadBodies = {}
@@ -5253,6 +5260,10 @@ return function(api)
         -- took the first word of it for that host loading again, and refreshed this player's world in the middle of play,
         -- a fight of their own too. A host restarting while the guest stays linked still does.)
         net.hostWorld = nil
+        net.bellBosses, net.continuedAtBell, net.toldBossNames = {}, {}, {}
+        for _, p in ipairs(partners()) do
+            p.foughtBosses = nil
+        end
         net.hostLethal, net.deadBodies = {}, {}
         net.everHeard, net.gapped, net.retellAt = nil, nil, nil
         net.bagSent, net.bagDue, net.bagWaiting = false, nil, nil
@@ -5655,7 +5666,7 @@ return function(api)
         local gone = p.lastRemoteAt ~= nil and (os.clock() - p.lastRemoteAt >= wait or p.byeAt ~= nil)
         if gone and not p.partnerGone then
             p.partnerGone = true
-            p.fights = nil
+            p.fights, p.foughtBosses = nil, nil
             -- What's left behind goes when the host does, or for a host when the last guest does.
             local last = p == net
             if net.slot == 1 then
@@ -5764,19 +5775,31 @@ return function(api)
         -- The host tells its own in its S handling.)
         if isClient() then
             for _, actor in ipairs(net.ownBosses()) do
-                local name, addr = enemyName(actor), actor:GetAddress()
-                for id, e in pairs(enemyByName) do
-                    if valid(e) and e:GetAddress() == addr then
-                        name = id
-                    end
-                end
-                sendEvent("B", name)
+                sendEvent("B", net.bossNetworkName(actor, actor:GetAddress()))
             end
         end
     end
 
     handlers.F = function(on, from)
         local p = peerOf(from)
+        local change, name = on:match("^([+%-]) (%S+)$")
+        if change and #name <= 893 then  -- 900 bytes less the party slot prefix and "F + "
+            if change == "+" then
+                if not p.foughtBosses then
+                    p.foughtBosses = {}
+                end
+                p.foughtBosses[name] = true
+            elseif p.foughtBosses then
+                p.foughtBosses[name] = nil
+            end
+            return
+        end
+        if on ~= "1" and on ~= "0" and on ~= "2" then
+            return
+        end
+        if on ~= "1" then
+            p.foughtBosses = nil
+        end
         local was
         if net.party then
             was = p.fights
@@ -5816,13 +5839,15 @@ return function(api)
                 -- (The host's fights are all over: none comes back at this player's death. Only those the host told of:
                 -- this player's own, announced to the host, stay theirs, and its kill still runs the boss's real death.)
                 for name in pairs(net.partnerBosses) do
-                    net.hostBosses[name] = nil
+                    if not net.continuedAtBell[name] then
+                        net.hostBosses[name] = nil
+                    end
                 end
             end
             local whose = net.party and (from or 1) or nil
             local over = {}
             for name in pairs(net.partnerBosses) do
-                if whose == nil or net.fightOf[name] == whose then
+                if not net.continuedAtBell[name] and (whose == nil or net.fightOf[name] == whose) then
                     log("The other player's fight with " .. name .. " is over there: over here too.")
                     -- (Asked before its end here: whether this player is in it is known till then. handover.lost.)
                     local boss = enemyByName[name]
@@ -5927,7 +5952,7 @@ return function(api)
     net.struckAt = net.struckAt or {}     -- enemy id -> os.clock() of this player's last blow on it (handover.byHere)
     net.capped = net.capped or {}         -- client: a copy's address -> { name, most }: its own game holds no more (syncEnemy)
     net.RISE_S = 15     -- a boss whose fight begins this soon after its death here is that boss up again (joinBossFight)
-    function net.fightingHere(pawn)
+    function net.fightingHere(pawn, names)
         if net.watchingFight then
             return false
         end
@@ -5944,23 +5969,31 @@ return function(api)
                 mirror = r ~= nil and r.Asleep == true
             end
             if not mirror then
-                return true
-            end
-            for name in pairs(net.partnerBosses) do
-                local e = enemyByName[name]
-                if valid(e) and e:GetAddress() == addr and (net.joinedBoss == name or (net.struck[name] and valid(pawn)
-                    and gap3d(pawn:K2_GetActorLocation(), boss:K2_GetActorLocation()) <= net.FIGHT_NEAR_CM)) then
+                if not names then
                     return true
+                end
+                names[net.bossNetworkName(boss, addr)] = true
+            else
+                for name in pairs(net.partnerBosses) do
+                    local e = enemyByName[name]
+                    if valid(e) and e:GetAddress() == addr and (net.joinedBoss == name or (net.struck[name] and valid(pawn)
+                        and gap3d(pawn:K2_GetActorLocation(), boss:K2_GetActorLocation()) <= net.FIGHT_NEAR_CM)) then
+                        if not names then
+                            return true
+                        end
+                        names[name] = true
+                    end
                 end
             end
         end
-        return false
+        return names ~= nil and next(names) ~= nil
     end
 
     local function tellFight(now)
         -- (In a fight here, or down in one with the respawn held for it or still deciding. The game takes the bar down as
         -- the player dies; the F 0 that followed ended the partner's copy, whose own F 0 let this respawn go.)
-        if net.fightingHere(localPawn()) or net.holdWanted
+        local names = {}
+        if net.fightingHere(localPawn(), names) or net.holdWanted
             or (net.toldFighting and (game.inCutscene() or net.holdLooking)) then
             net.fightHereAt = now
         end
@@ -5982,8 +6015,31 @@ return function(api)
         local down = not fighting and net.deadSince ~= nil and net.holdLooking == true
         -- (Told again after a gap, a join or a sync start (fightToldAt 0), "no fight" too, once: only a change was ever
         -- said, and a fight's end missed in a gap was never heard.)
-        if fighting ~= net.toldFighting or down ~= (net.toldDown == true) or ((fighting or down) and now >= (net.fightToldAt or 0))
-            or net.fightToldAt == 0 then
+        local report = fighting ~= net.toldFighting or down ~= (net.toldDown == true)
+            or ((fighting or down) and now >= (net.fightToldAt or 0)) or net.fightToldAt == 0
+        if net.deadSince ~= nil or api.revive.isDown() then
+            names = {}
+        elseif not next(names) and fighting then
+            names = net.toldBossNames  -- preserve the names across the same phase gap as F
+        end
+        for name in pairs(net.toldBossNames) do
+            if not names[name] then
+                sendEvent("F", "-", name)
+            end
+        end
+        for name in pairs(names) do
+            if report or not net.toldBossNames[name] then
+                sendEvent("F", "+", name)
+            end
+        end
+        net.toldBossNames = names
+        for name in pairs(net.continuedAtBell) do
+            if not net.foughtAtBell(name, names) then
+                endBossFight(name, enemyByName[name])
+                net.hostBosses[name], net.fightOf[name] = nil, nil
+            end
+        end
+        if report then
             local again = fighting and net.toldFighting == false
             net.toldFighting, net.toldDown, net.fightToldAt = fighting, down, now + FIGHT_TOLD_S
             sendEvent("F", fighting and 1 or (down and 2 or 0))
