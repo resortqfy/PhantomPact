@@ -3146,12 +3146,21 @@ local function sitBosses()
         local before = hp(gb)
         Fake.setHealth(g.pawn, 100)
         Fake.put(g.gourd, "CurrentTime", 0)
+        Session.moveTo(h, -30000, 0)
+        h.hudLayout:UnRegisterBossHPBar(hb)
         Session.sit(h)
         s:run(3)
         local _, gmax = Fake.health(gb)
         check(before < gmax - 1 and hp(gb) == before and hp(hb) == math.floor(hmax * 0.3 + 0.5) and Fake.health(g.pawn) == 100
             and field(g.gourd, "CurrentTime") == 0 and count(g.logs, TIP) == 0 and g.env.PBZ.net.partnerBosses["sp:boss"],
             "the host sits: its helper keeps the boss fight, health and gourd")
+        Session.die(g)
+        g.hudLayout:UnRegisterBossHPBar(gb)
+        s:run(6)
+        Session.respawned(g)
+        Session.revive(g)
+        s:run(12)
+        check(hp(hb) == hmax, "the last helper dies after the host sits: the next attempt starts at full health")
         allErrors(s)
     end
     -- A party, the boss far from the host (each guest's copy is the boss in its world): guest 2's fight, guest 3 struck it;

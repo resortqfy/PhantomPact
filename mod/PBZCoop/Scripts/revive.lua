@@ -388,7 +388,7 @@ return function(api)
             return
         end
         net.partnerDowned = true
-        net.foughtBosses = nil
+        net.foughtBosses = {}
         tip("Your partner is down: strike them to bring them back.")
         if down then
             local pc, pawn = api.getPlayer1()

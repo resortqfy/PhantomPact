@@ -150,7 +150,8 @@ return function(api)
         guestLines = {},          -- host: enemy id -> the guest's latest record of one its game runs
         mine = {},                -- client: host enemy id -> true while this game runs it (see handover)
         bellBosses = {},          -- names of bosses met in this world, including fights left alive
-        continuedAtBell = {},     -- mirrored fights whose starter sat while someone else stayed
+        continuedAtBell = {},     -- fights that continued after a player sat at a bell
+        foughtBosses = {},        -- the untagged partner's latest reported fights
         toldBossNames = {},       -- names sent with this player's F state
         fightOf = {},             -- party: boss id -> the slot of whoever started that fight
         stats = { sent = 0, received = 0, applied = 0, undone = 0 },
@@ -181,7 +182,7 @@ return function(api)
         end
         local p = net.peers[from]
         if p == nil then
-            p = { number = from }
+            p = { number = from, foughtBosses = {} }
             net.peers[from] = p
             if net.peerList then
                 net.peerList[#net.peerList + 1] = p
@@ -1241,7 +1242,7 @@ return function(api)
             -- fought back. The sixth review.)
             if net.partnerBosses[id] or (isClient() and game.isBoss and game.isBoss(enemy))
                 or (net.party and isClient() and (net.remoteEnemies[id] or {}).Asleep == true) then
-                net.struck[id] = true
+                net.markStruck(id)
                 net.struckAt[id] = os.clock()   -- (the blow itself, for handover.byHere)
             end
         end
@@ -1679,7 +1680,7 @@ return function(api)
                                 posture = prev.posture
                             end
                             dPosture = 0
-                            net.struck[name] = true     -- (in this fight, a parry's too: see reportHit)
+                            net.markStruck(name)     -- a parry counts as entering the fight
                         end
                         if dHp > 0.5 or dPosture > 0.5 or onFloor or broke then
                             -- (This player's own finishing move, the game's: told as that. net.finishingMove.)
@@ -2243,12 +2244,14 @@ return function(api)
     -- game's to run (263), and in a party one asleep here (277), that was the ordinary case. Not with PvP on or in a
     -- match, as a sit's; in a party not while another's fight is on. The review of 11-16.
     function handover.lost(name)
+        if not isHost() or net.pvp or net.arena then
+            return
+        end
         local actor = enemyByName[name]
-        if not valid(actor) and game.liveBossesWithId then
+        if not valid(actor) then
             actor = game.liveBossesWithId(name)[1]      -- (out of this round's reach: its guest back at a far bell)
         end
-        if not isHost() or net.pvp or net.arena or (net.party and net.partnerFighting) or not valid(actor)
-            or (game.isDead and game.isDead(actor)) then
+        if not valid(actor) or game.isDead(actor) then
             return
         end
         if net.guestRuns[name] then
@@ -2878,7 +2881,7 @@ return function(api)
 
     -- The partner has just (re)started sync: it knows nothing yet. It hears again what enemies are, and what's dead.
     handlers.S = function(_, from)
-        peerOf(from).foughtBosses = nil
+        peerOf(from).foughtBosses = {}
         if isClient() and from then
             -- Another guest of the party started over, or someone new took that slot (the host passes it on): only what
             -- this player showed them is news to them. The host's world, its kills and what the two ran is as it was.
@@ -4067,7 +4070,7 @@ return function(api)
 
     handlers.R = function(kind, from)
         local rested = peerOf(from)
-        rested.fights, rested.foughtBosses = false, nil
+        rested.fights, rested.foughtBosses = false, {}
         countFights()
         -- A guest hearing another guest's rest, passed on: whether the host's world refreshed for it is the host's to say
         -- (RH). Taken as so, the host's kills were forgotten and this world refreshed when the host's hadn't, its enemies
@@ -4185,7 +4188,7 @@ return function(api)
             return true
         end
         for _, p in ipairs(partners()) do
-            if p.foughtBosses and p.foughtBosses[name] and net.upHere(p) then
+            if p.foughtBosses[name] and net.upHere(p) then
                 return true
             end
         end
@@ -4230,7 +4233,13 @@ return function(api)
         end
         restEvent("sit")
         if not net.pvp then
-            net.sitBossesToFull({})
+            local localFights = {}
+            net.sitBossesToFull(localFights)
+            for name in pairs(net.bellBosses) do
+                if net.foughtAtBell(name, localFights) then
+                    net.continuedAtBell[name] = true
+                end
+            end
         end
         if game.resetBosses then
             game.resetBosses()
@@ -4244,7 +4253,7 @@ return function(api)
 
     handlers.SIT = function(_, from)
         local p = peerOf(from)
-        p.fights, p.foughtBosses = false, nil
+        p.fights, p.foughtBosses = false, {}
         countFights()
         restEvent("partnersit")
         local _, pawn = getPlayer1()
@@ -4505,6 +4514,7 @@ return function(api)
         net.farFight = nil
         log("Joining the other player's boss fight, in an arena apart from the map.")
         net.joinedBoss, net.joinedWith, net.joinedFar = far.name, far.p, true
+        net.fightLookAt = 0
         net.endWatch(pawn)
         net.arrival = nil
         arriveAt(pawn, far.at)
@@ -4553,6 +4563,7 @@ return function(api)
                 if game.passFog(pawn, wall, inside) then
                     log("Through the fog wall, into the other player's boss fight.")
                     net.joinedBoss, net.joinedWith, net.joinedFar = name, p, false
+                    net.fightLookAt = 0
                 else
                     api.status.notify("join", "no ground past the wall here: try another part of it.")
                 end
@@ -5259,7 +5270,7 @@ return function(api)
         net.hostWorld = nil
         net.bellBosses, net.continuedAtBell, net.toldBossNames = {}, {}, {}
         for _, p in ipairs(partners()) do
-            p.foughtBosses = nil
+            p.foughtBosses = {}
         end
         net.hostLethal, net.deadBodies = {}, {}
         net.everHeard, net.gapped, net.retellAt = nil, nil, nil
@@ -5374,6 +5385,7 @@ return function(api)
         end
         net.peers, net.peerList, net.ghostSlots = {}, nil, {}
         net.party, net.slot, net.number, net.lead, net.watched, net.fights = nil, nil, nil, nil, nil, nil
+        net.foughtBosses = {}
         net.partnerFighting = false
     end
 
@@ -5663,7 +5675,7 @@ return function(api)
         local gone = p.lastRemoteAt ~= nil and (os.clock() - p.lastRemoteAt >= wait or p.byeAt ~= nil)
         if gone and not p.partnerGone then
             p.partnerGone = true
-            p.fights, p.foughtBosses = nil, nil
+            p.fights, p.foughtBosses = nil, {}
             -- What's left behind goes when the host does, or for a host when the last guest does.
             local last = p == net
             if net.slot == 1 then
@@ -5781,21 +5793,14 @@ return function(api)
         local p = peerOf(from)
         local change, name = on:match("^([+%-]) (%S+)$")
         if change and #name <= 893 then  -- 900 bytes less the party slot prefix and "F + "
-            if change == "+" then
-                if not p.foughtBosses then
-                    p.foughtBosses = {}
-                end
-                p.foughtBosses[name] = true
-            elseif p.foughtBosses then
-                p.foughtBosses[name] = nil
-            end
+            p.foughtBosses[name] = change == "+" or nil
             return
         end
         if on ~= "1" and on ~= "0" and on ~= "2" then
             return
         end
         if on ~= "1" then
-            p.foughtBosses = nil
+            p.foughtBosses = {}
         end
         local was
         if net.party then
@@ -5857,7 +5862,7 @@ return function(api)
                     endBossFight(name, boss)
                     net.fightOf[name] = nil
                     over[name] = true
-                    if alone then
+                    if alone and not (net.party and net.partnerFighting) then
                         handover.lost(name)     -- (a lost fight starts over, as the game has it)
                     end
                 end
@@ -5949,6 +5954,13 @@ return function(api)
     net.struckAt = net.struckAt or {}     -- enemy id -> os.clock() of this player's last blow on it (handover.byHere)
     net.capped = net.capped or {}         -- client: a copy's address -> { name, most }: its own game holds no more (syncEnemy)
     net.RISE_S = 15     -- a boss whose fight begins this soon after its death here is that boss up again (joinBossFight)
+    function net.markStruck(name)
+        if not net.struck[name] then
+            net.struck[name] = true
+            net.fightLookAt = 0
+        end
+    end
+
     function net.fightingHere(pawn, names)
         if net.watchingFight then
             return false
@@ -6032,6 +6044,7 @@ return function(api)
         net.toldBossNames = names
         for name in pairs(net.continuedAtBell) do
             if not net.foughtAtBell(name, names) then
+                handover.lost(name)
                 endBossFight(name, enemyByName[name])
                 net.hostBosses[name], net.fightOf[name] = nil, nil
             end
