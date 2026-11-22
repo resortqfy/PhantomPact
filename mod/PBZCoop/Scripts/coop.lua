@@ -3731,10 +3731,10 @@ return function(api)
     end
 
     local function reportPickup(name, itemId)
-        log("Picked up " .. name .. " (" .. tostring(itemId) .. "), telling the other player.")
-        -- (Only that it's gone: the item itself goes by T, like everything the game gives. What it held and how many come
-        -- too, for a partner whose copy wasn't loaded to wait for that share all the same: game.takeRemotePickup.)
-        sendEvent("I", name, "?", "-", itemId or "-", game.pickupCount and game.pickupCount(itemId) or 1)
+        if game.isNarrative(itemId) then
+            log("Picked up " .. name .. " (" .. itemId .. "), telling the other player.")
+            sendEvent("I", name, "?", "-", itemId, game.pickupCount(itemId))
+        end
     end
 
     ------------------------------------------------------------------ bells and currency

@@ -61,6 +61,16 @@ local function field(o, name)
     return rawget(o, "__fields")[name]
 end
 
+-- The native grant runs while the pickup is the pawn's current interaction target.
+local function takeWorldItem(pc, pickup, id)
+    local interact = field(pc.pawn, "interact")
+    rawset(pickup, "__classObject", Fake.object(pc, "PBZPickupActor"))
+    Fake.put(interact, "InteractingActor", pickup)
+    Session.gainItem(pc, id, 1)
+    pickup:K2_DestroyActor()
+    Fake.put(interact, "InteractingActor", nil)
+end
+
 local function at(a)
     return field(a, "loc")
 end
@@ -349,25 +359,26 @@ local function sharing()
     s:run(1.5)
     Fake.put(a.chests[1], "CurSwitchState", true)
     s:run(1.5)
-    check(field(h.chests[1], "CurSwitchState") == true and field(b.chests[1], "CurSwitchState") == true and field(c.chests[1], "CurSwitchState") == true, "a chest one guest opens stops paying everywhere")
-    local swung = true
+    check(field(a.chests[1], "CurSwitchState") and not field(h.chests[1], "CurSwitchState")
+        and not field(b.chests[1], "CurSwitchState") and not field(c.chests[1], "CurSwitchState"),
+        "an ordinary chest opens only for the guest who used it")
+    local untouched = true
     for _, pc in ipairs({ h, b, c }) do
         local lid, glow = field(pc.chests[1], "Chest"), field(pc.chests[1], "Niagara")
-        swung = swung and field(lid, "anim") == pc.found["/HuaShira/SceneProp/Chest/Anim/Chest_Close2Open.Chest_Close2Open"]
-            and field(lid, "at") > 1 and field(lid, "VisibilityBasedAnimTickOption") == 0 and field(glow, "on") == false
-            and field(pc.chests[1], "swept") == false
+        untouched = untouched and field(lid, "anim") == nil and field(lid, "VisibilityBasedAnimTickOption") == 4
+            and field(glow, "on") and field(pc.chests[1], "swept")
     end
-    check(swung and field(field(a.chests[1], "Chest"), "anim") == nil,
-        "and looks open there: its lid swings open, its glow and sweeping light go (the opener's is left to the game)")
+    check(untouched and field(field(a.chests[1], "Chest"), "anim") == nil,
+        "the others keep a shut lid, glow and sweeping light, and the game animates the opener's chest")
     Session.moveTo(b, 300, 0)
     s:run(1.5)
     b.pickups[1]:K2_DestroyActor()
     s:run(1.5)
-    local gone = true
+    local kept = true
     for _, pc in ipairs({ h, a, c }) do
-        gone = gone and not rawget(pc.pickups[1], "__alive")
+        kept = kept and rawget(pc.pickups[1], "__alive")
     end
-    check(gone, "a pickup one guest takes goes from every world")
+    check(kept, "a guest's ordinary pickup remains available in every other world")
     -- A quest item (a key, a letter, a stone): shared now, like any find (a player report, 11-06: with the host's story steps
     -- reaching everyone, the partner's copy vanished with nothing given). Its pickup goes from every world, and the item, as the
     -- game gives it, comes to everyone with its card.
@@ -498,9 +509,9 @@ local function sharing()
     s:run(1.5)
     local late = Fake.chest(c, "BP_Chest_C_2", 300.0, 200.0, 100.0)
     s:run(1.5)
-    check(field(late, "CurSwitchState") == true and field(field(late, "Chest"), "anim") == c.found["/HuaShira/SceneProp/Chest/Anim/Chest_Open.Chest_Open"]
-        and field(field(late, "Niagara"), "on") == false and field(late, "swept") == false,
-        "a chest that wasn't loaded yet is open when it loads, lid and all")
+    check(not field(late, "CurSwitchState") and field(field(late, "Chest"), "anim") == nil
+        and field(field(late, "Niagara"), "on") and field(late, "swept"),
+        "an ordinary chest that loads after a guest opened theirs is still shut and glowing")
     allErrors(s)
 end
 
@@ -6630,9 +6641,7 @@ end
 -- guest's hit doesn't force their copy's flinch on the host's boss in the middle of a move of its own; between moves one gets
 -- through now and then; a posture break always does. And the guest's boss copy, in a flinch of its own, still plays the host's
 -- next move (thrown away, the guest was never hit back).
--- A fresh session, the game's item table read by nothing yet: the first pickup is told all the same, and the partner's copy
--- goes. (With quest items shared, nothing read the table, and a pickup was told only once it was read: none was, the
--- partner's copy stayed, and the second to pick it up had two, a Killing Aura Amber say; a report on 1.6.9.)
+-- In a fresh session, both players can collect their own copy of a ground item.
 local function pickupsFresh()
     part("a pickup in a fresh session")
     local s, h, g = pair()
@@ -6648,11 +6657,12 @@ local function pickupsFresh()
     Session.moveTo(h, 250, 150)
     Session.moveTo(g, 250, -150)
     s:run(2)
-    pickupOn(h, "amber1"):K2_DestroyActor()
-    Session.gainItem(h, "R_520", 1)
+    takeWorldItem(h, pickupOn(h, "amber1"), "R_520")
     s:run(4)
-    check(count(h.sent, "^E I amber1") == 1 and rawget(pickupOn(g, "amber1"), "__alive") == false,
-        "the first pickup of a fresh session is told, and the partner's copy goes")
+    check(count(h.sent, "^E I amber1") == 0 and rawget(pickupOn(g, "amber1"), "__alive") and Session.items(g, "R_520") == 0,
+        "the first ordinary pickup leaves the guest's copy and inventory untouched")
+    takeWorldItem(g, pickupOn(g, "amber1"), "R_520")
+    s:run(4)
     check(Session.items(g, "R_520") == 1 and Session.items(h, "R_520") == 1, "one pickup in the world is one each")
     allErrors(s)
 
@@ -6728,18 +6738,16 @@ local function pickupsShown()
     both("matB", "Weapon_Material_02", 250.0, -100.0)
     s:run(2)
     local h0, g0 = Session.items(h, "Weapon_Material_02"), Session.items(g, "Weapon_Material_02")
-    pickupOn(h, "matA"):K2_DestroyActor()
-    Session.gainItem(h, "Weapon_Material_02", 1)
-    pickupOn(g, "matB"):K2_DestroyActor()
-    Session.gainItem(g, "Weapon_Material_02", 1)
+    takeWorldItem(h, pickupOn(h, "matA"), "Weapon_Material_02")
+    takeWorldItem(g, pickupOn(g, "matB"), "Weapon_Material_02")
     s:run(6)
-    check(Session.items(h, "Weapon_Material_02") == h0 + 2 and Session.items(g, "Weapon_Material_02") == g0 + 2,
-        string.format("two pickups of one thing in a moment: two each, %d and %d", Session.items(h, "Weapon_Material_02") - h0,
+    check(Session.items(h, "Weapon_Material_02") == h0 + 1 and Session.items(g, "Weapon_Material_02") == g0 + 1,
+        string.format("two separate pickups of one material in a moment: one each, %d and %d", Session.items(h, "Weapon_Material_02") - h0,
             Session.items(g, "Weapon_Material_02") - g0))
-    check(rawget(pickupOn(h, "matB"), "__alive") == false and rawget(pickupOn(g, "matA"), "__alive") == false,
-        "and each one's copy of the other's gone")
+    check(rawget(pickupOn(h, "matB"), "__alive") and rawget(pickupOn(g, "matA"), "__alive"),
+        "and each player can still take the other spot")
 
-    -- The guest's game takes one in without its notice: no share comes. The host's copy went: given from it.
+    -- A quiet local pickup leaves the host free to take their own copy.
     both("matC", "Weapon_Material_02", 300.0, 0.0)
     s:run(2)
     h0 = Session.items(h, "Weapon_Material_02")
@@ -6748,25 +6756,24 @@ local function pickupsShown()
     s:run(5)
     local early = Session.items(h, "Weapon_Material_02")
     s:run(16)
-    check(early == h0 and Session.items(h, "Weapon_Material_02") == h0 + 1 and count(h.logs, "never came") == 1,
-        "a pickup whose share never came is given from the host's copy, once its wait is out: " .. early - h0 .. " then "
+    check(early == h0 and Session.items(h, "Weapon_Material_02") == h0 and rawget(pickupOn(h, "matC"), "__alive") and count(h.logs, "never came") == 0,
+        "a quiet personal pickup leaves the host's copy and inventory untouched after the old wait: " .. early - h0 .. " then "
         .. Session.items(h, "Weapon_Material_02") - h0)
 
-    -- Its area streams back in (the host off by a bell and back): the game makes the copy again. Gone again, not given again.
+    -- The host can still take a personal pickup after it streams back in.
     h0 = Session.items(h, "Weapon_Material_02")
     local again = Fake.pickup(h, "matB", "Weapon_Material_02", 250.0, -100.0, 100.0)
     s:run(3)
-    check(rawget(again, "__alive") == false and Session.items(h, "Weapon_Material_02") == h0,
-        "a copy the guest took, made again as its area streams back in: gone again")
-    -- One the host's world hadn't loaded when the word came, loaded after: gone too.
+    check(rawget(again, "__alive") and Session.items(h, "Weapon_Material_02") == h0,
+        "a personal pickup streamed back in is available without a grant")
+    -- A first-time load after the guest picked theirs also leaves the host a copy.
     Fake.pickup(g, "matD", "Weapon_Material_02", 280.0, -150.0, 100.0)
     s:run(2)
-    pickupOn(g, "matD"):K2_DestroyActor()
-    Session.gainItem(g, "Weapon_Material_02", 1)
+    takeWorldItem(g, pickupOn(g, "matD"), "Weapon_Material_02")
     s:run(5)
     local late = Fake.pickup(h, "matD", "Weapon_Material_02", 280.0, -150.0, 100.0)
     s:run(3)
-    check(rawget(late, "__alive") == false, "a copy loaded after the guest's word came: gone as it loads")
+    check(rawget(late, "__alive"), "a personal pickup first loaded after the guest took theirs stays available")
 
     -- Both take the same pickup in the same moment, the guest's word here before the host's own look saw its copy go (the
     -- copy taken, unpickable, still found): one each. Waited for, the guest's share came as a second (the review of 11-09).
@@ -6988,13 +6995,13 @@ local function pickupsRaced()
     s:run(0.4)
     Session.gainItem(g, M, 1)
     s:run(1.5)
-    take(g, "farZ")
+    takeWorldItem(g, pickupOn(g, "farZ"), M)
     s:run(10)
     local late = Fake.pickup(h, "farZ", M, 3000.0, 0.0, 100.0)
     Session.moveTo(h, 3000, -150)
     s:run(4)
-    check(Session.items(h, M) - h0 == 2 and rawget(late, "__alive") == false,
-        "a pickup the host hadn't loaded, a reward of the same thing just before: 2 at the host, its copy gone as it loads: "
+    check(Session.items(h, M) - h0 == 1 and rawget(late, "__alive"),
+        "a prior shared reward reaches the host once and the later personal pickup streams in intact: "
         .. Session.items(h, M) - h0)
     allErrors(s)
 
@@ -7031,18 +7038,13 @@ local function pickupsRaced()
     Session.moveTo(ph, -2500, 0)
     p3:run(4)
     local ph0 = Session.items(ph, M)
-    Fake.put(pickupOn(pa, "herbQ"), "bIsPickable", false)
-    Session.gainItem(pa, M, 1)
-    Fake.put(pickupOn(pb, "herbQ"), "bIsPickable", false)
-    Session.gainItem(pb, M, 1)
-    pb.env.PBZ.game.takeRemotePickup("herbQ", "?", pb.pawn, nil, nil)          -- (A's word, before B's look)
+    takeWorldItem(pa, pickupOn(pa, "herbQ"), M)
+    takeWorldItem(pb, pickupOn(pb, "herbQ"), M)
     p3:run(40)
-    check(Session.items(ph, M) - ph0 == 1 and count(pb.sent, "^E I herbQ") == 1,
-        "two guests take one pickup, the second's look after the first's word: still told, the host gets one: "
-        .. Session.items(ph, M) - ph0)
+    check(Session.items(ph, M) == ph0 and rawget(pickupOn(ph, "herbQ"), "__alive")
+        and count(pa.sent, "^E I herbQ") == 0 and count(pb.sent, "^E I herbQ") == 0,
+        "two guests take their personal copies without reporting the pickup or paying the host")
 
-    -- One guest takes a pickup, and the same one again once it's back in their world: the host gets both. (Taken for a
-    -- second guest's word on one gone, its share was dropped as the same thing.)
     Session.moveTo(pb, -6000, 0)
     Fake.pickup(ph, "herbR", M1, 600.0, 0.0, 100.0)
     Fake.pickup(pa, "herbR", M1, 600.0, 0.0, 100.0)
@@ -7075,15 +7077,15 @@ local function pickupsRaced()
     Fake.pickup(qb, "herbB", M, -6000.0, 0.0, 100.0)
     q:run(3)
     local q0 = Session.items(qh, M)
-    take(qa, "herbA")
+    takeWorldItem(qa, pickupOn(qa, "herbA"), M)
     q:run(4)
-    take(qb, "herbB")
+    takeWorldItem(qb, pickupOn(qb, "herbB"), M)
     q:run(30)
     local lateA = Fake.pickup(qh, "herbA", M, 6000.0, 0.0, 100.0)
     local lateB = Fake.pickup(qh, "herbB", M, -6000.0, 0.0, 100.0)
     q:run(4)
-    check(Session.items(qh, M) - q0 == 2 and rawget(lateA, "__alive") == false and rawget(lateB, "__alive") == false,
-        "two guests' pickups of one thing 4 s apart, not loaded at the host: it gets both, its copies gone: "
+    check(Session.items(qh, M) - q0 == 0 and rawget(lateA, "__alive") and rawget(lateB, "__alive"),
+        "two personal pickups four seconds apart leave both of the host's late copies intact: "
         .. Session.items(qh, M) - q0)
     allErrors(q)
 
@@ -7110,9 +7112,7 @@ local function pickupsRaced()
         end
     end
 
-    -- A kill's reward of 2 between the guest's pickup of 1 and its next look: its word says 2. The host, with a find of its
-    -- own of the same thing 5 s before, gets every event once: 4 each. (The pickup's share was dropped as that find's, the
-    -- reward's given in its place: 5.)
+    -- A shared reward arrives between a personal pickup and the next pickup scan.
     s, h, g = pair()
     looks(g)
     Session.moveTo(h, 250, 150)
@@ -7123,17 +7123,17 @@ local function pickupsRaced()
     end
     s:run(3)
     h0, g0 = Session.items(h, M), Session.items(g, M)
-    take(h, "herbQ5")
+    takeWorldItem(h, pickupOn(h, "herbQ5"), M)
     s:run(5)
     untilLook(s, g)
-    take(g, "herbP5")
+    takeWorldItem(g, pickupOn(g, "herbP5"), M)
     s:run(0.1)
     Session.gainItem(h, M, 2)
     s:run(0.2)
     Session.gainItem(g, M, 2)
     s:run(40)
-    check(count(g.sent, "^E I herbP5 %? %- Weapon_Material_02 2$") == 1 and Session.items(h, M) - h0 == 4 and Session.items(g, M) - g0 == 4,
-        string.format("a kill's reward between the guest's pickup and its look, its word saying the reward's 2: 4 each, %d and %d",
+    check(count(g.sent, "^E I herbP5") == 0 and Session.items(h, M) - h0 == 3 and Session.items(g, M) - g0 == 3,
+        string.format("a shared kill reward of two and a personal pickup for each player: three each, %d and %d",
             Session.items(h, M) - h0, Session.items(g, M) - g0))
     allErrors(s)
 
@@ -7160,8 +7160,7 @@ local function pickupsRaced()
         "a party: B's own find of 2, then A and B take one pickup: the host gets 3: " .. Session.items(dh, M) - d0)
     allErrors(d)
 
-    -- The guest's word before the host's first look as it loads in (the look reads the save's name, which what's gone goes
-    -- by): the host's copy, made again later, goes again. (Filed under no save, it was there to take again.)
+    -- A pickup during the host's load must leave their later copy available.
     local v = Session.new(SIM_SCRIPTS, { "Host", "Guest" }, false, ENEMIES)
     for _, pc in ipairs(v.pcs) do
         local find = pc.env.FindFirstOf
@@ -7183,15 +7182,15 @@ local function pickupsRaced()
     Fake.pickup(vg, "herbS", M, 250.0, 0.0, 100.0)
     v:run(9)
     local v0 = Session.items(vh, M)
-    take(vg, "herbS")
+    takeWorldItem(vg, pickupOn(vg, "herbS"), M)
     v:run(16)
     Session.moveTo(vh, 30000, 150)
     v:run(5)
     local again2 = Fake.pickup(vh, "herbS", M, 250.0, 0.0, 100.0)
     Session.moveTo(vh, 250, 150)
     v:run(5)
-    check(rawget(again2, "__alive") == false and Session.items(vh, M) - v0 == 1 and vh.env.PBZ.game.saveSlot == "Slot1",
-        "the guest's word before the host's first look: the host's copy made again later goes again, one each: "
+    check(rawget(again2, "__alive") and Session.items(vh, M) == v0 and vh.env.PBZ.game.saveSlot == "Slot1",
+        "a guest's pickup before the host's first look leaves a later copy available in the host's save: "
         .. Session.items(vh, M) - v0)
     allErrors(v)
 
@@ -7214,9 +7213,7 @@ local function pickupsRaced()
             Session.items(h, M) - h0, Session.items(g, M) - g0))
     allErrors(s)
 
-    -- Shares of other things piled up, then the guest's own find of a thing and its pickup of the same: the host's copy goes
-    -- at the word, 2 each, no script error. (Old ones taken off under the one found, its place pointed past the list: the
-    -- word stopped before the copy went, 3 each.)
+    -- An ordinary pickup remains personal when an earlier reward gave the same material.
     s, h, g = pair()
     Session.moveTo(h, 250, 150)
     Session.moveTo(g, 250, -150)
@@ -7230,10 +7227,10 @@ local function pickupsRaced()
     s:run(20)
     Session.gainItem(g, M, 1)
     s:run(5)
-    take(g, "matG")
+    takeWorldItem(g, pickupOn(g, "matG"), M)
     s:run(25)
-    check(Session.items(h, M) - h0 == 2 and Session.items(g, M) - g0 == 2 and rawget(pickupOn(h, "matG"), "__alive") == false,
-        string.format("other shares piled up, then a find and a pickup of one thing: 2 each, the host's copy gone: %d and %d",
+    check(Session.items(h, M) - h0 == 1 and Session.items(g, M) - g0 == 2 and rawget(pickupOn(h, "matG"), "__alive"),
+        string.format("a shared reward followed by a personal pickup of the same thing: one for the host, two for the guest: %d and %d",
             Session.items(h, M) - h0, Session.items(g, M) - g0))
     allErrors(s)
 end
@@ -9643,8 +9640,8 @@ local function hostsChests()
     s:run(2)
     Fake.put(live, "CurSwitchState", true)
     s:run(3)
-    check(field(liveThere, "CurSwitchState") == true and Session.items(g, "Weapon_Material_04") == 6,
-        "one the host opens now isn't paid from the table: its things come as the host gets them")
+    check(not field(liveThere, "CurSwitchState") and Session.items(g, "Weapon_Material_04") == 6,
+        "an ordinary chest opened by the host during play remains shut and unpaid for the guest")
     local hostHas = Fake.chest(h, "BP_Chest_C_12", 700.0, 0.0, 100.0, "Xigu.AC_Deflect")
     local guestOpening = Fake.chest(g, "BP_Chest_C_12", 700.0, 0.0, 100.0, "Xigu.AC_Deflect")
     Fake.put(field(g.pawn, "interact"), "InteractingActor", guestOpening)
@@ -9984,7 +9981,8 @@ local function questFlags()
     s:run(3)
     check(has(h, "xg.camp.herb1") == 1 and has(b, "xg.camp.herb1") == 1 and has(c, "xg.camp.herb1") == 1,
         "a pile a guest searched raises its flag in the host's world and the other guests'")
-    check(rawget(herbs[1], "__alive") == false and rawget(herbs[3], "__alive") == false, "their copies of it go, as before")
+    check(rawget(herbs[1], "__alive") and rawget(herbs[3], "__alive") and rawget(herbs[4], "__alive"),
+        "the ordinary pile remains searchable in all three other worlds")
     s:run(20)
     check(has(h, "xg.camp.herb1") == 1 and has(b, "xg.camp.herb1") == 1 and has(c, "xg.camp.herb1") == 1,
         "once each, the host's flags told on to the guests as well")
