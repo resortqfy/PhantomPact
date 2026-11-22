@@ -174,6 +174,7 @@ tip.f3.no_partner	no partner to go to yet.	لا يوجد شريك تنتقل إ�
 tip.f3.partner_prologue	your partner is still in the prologue.	ما زال شريكك في المقدمة.	
 tip.f3.in_prologue	you're in the prologue: finish it first, or start a New Game and choose the game's own skip there.	أنت في المقدمة: أنهِها أولًا، أو ابدأ New Game واختر خيار التخطي في اللعبة نفسها.	kept in English: a name in the game, which has no Arabic (the user, 11-10); the New Game sentence is the glossary's, as on the Skip Prologue tile; was: أنت في المقدمة: أنهِها أولًا، أو ابدأ لعبة جديدة واختر خيار التخطي في اللعبة نفسها.
 tip.f3.cant_join	your partner can't be joined right now.	لا يمكن الانتقال إلى شريكك الآن.	as the Chinese: can't teleport to your partner now
+tip.f3.no_ground	no safe ground beside your partner right now.	لا توجد أرض آمنة بجوار شريكك الآن.	
 tip.f3.position	your partner's position looks wrong.	يبدو أن موقع شريكك غير صحيح.	
 tip.f3.map_unknown	your partner's map isn't known yet.	خريطة شريكك غير معروفة بعد.	
 tip.f3.wouldnt_go	the game wouldn't go there.	رفضت اللعبة الانتقال إلى هناك.	glossary sentence

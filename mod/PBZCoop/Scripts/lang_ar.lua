@@ -46,6 +46,7 @@ return {
         ["you're past the prologue."] = "لقد تجاوزت المقدمة بالفعل.",  -- f5more.tip.past_prologue
         ["your partner is still in the prologue."] = "ما زال شريكك في المقدمة.",  -- tip.f3.partner_prologue
         ["your partner can't be joined right now."] = "لا يمكن الانتقال إلى شريكك الآن.",  -- tip.f3.cant_join
+        ["no safe ground beside your partner right now."] = "لا توجد أرض آمنة بجوار شريكك الآن.",  -- tip.f3.no_ground
         ["your partner's position looks wrong."] = "يبدو أن موقع شريكك غير صحيح.",  -- tip.f3.position
         ["your partner's map isn't known yet."] = "خريطة شريكك غير معروفة بعد.",  -- tip.f3.map_unknown
         ["the game wouldn't go there."] = "رفضت اللعبة الانتقال إلى هناك.",  -- tip.f3.wouldnt_go

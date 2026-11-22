@@ -2325,6 +2325,32 @@ local function travel()
     local s = party()
     local h, a, b, c = s.pcs[1], s.pcs[2], s.pcs[3], s.pcs[4]
     c.groundTraces = true
+    -- Three partner bodies over the same hole. The only thing a downward trace could hit is one of them.
+    do
+        for _, partner in ipairs({ h, a, b }) do
+            Session.moveTo(partner, 8000, 0)
+        end
+        Session.moveTo(c, 0, 0)
+        s:run(2)
+        local kismet = c.env.StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        local trace = kismet.LineTraceSingle
+        Fake.put(kismet, "LineTraceSingle", function(_, _, _, _, _, _, ignored)
+            local skipped = {}
+            for _, actor in ipairs(ignored) do
+                skipped[actor] = true
+            end
+            for slot = 1, 3 do
+                if not skipped[ghostOf(c, slot)] then
+                    return true
+                end
+            end
+            return false
+        end)
+        local reason = c.env.PBZ.coop.joinPartner()
+        check(reason == "no safe ground beside your partner right now." and at(c.pawn).X == 0,
+            "a group of partner ghosts over a hole cannot serve as the landing floor")
+        Fake.put(kismet, "LineTraceSingle", trace)
+    end
     Session.moveTo(h, 0, 0)
     Session.moveTo(a, 20000, 0)
     Session.moveTo(b, 3000, 0)

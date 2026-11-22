@@ -4622,7 +4622,13 @@ return function(api)
                 net.travelUntil = os.clock() + 30
                 log(string.format("Going to the other player, %.0f m off: by the game's own trip.", gap / 100))
             elseif gap > JOIN_NEAR_CM then
-                if not game.floorUnder(pawn, t.X, t.Y, t.Z) then
+                local ghosts = {}
+                for _, partner in ipairs(partners()) do
+                    if valid(partner.ghost) then
+                        ghosts[#ghosts + 1] = partner.ghost
+                    end
+                end
+                if not game.floorUnder(pawn, t.X, t.Y, t.Z, ghosts) then
                     return "no safe ground beside your partner right now."
                 end
                 net.arrival = nil       -- (this trip's spot, not the last one's)

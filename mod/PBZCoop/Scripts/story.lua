@@ -1214,7 +1214,7 @@ return function(api)
                 or "this world has no story box for it there (played before?), nothing done."))
             return
         end
-        if not (game.floorUnder and game.floorUnder(pawn, spot.X, spot.Y, spot.Z)) then
+        if not (game.floorUnder and game.floorUnder(pawn, spot.X, spot.Y, spot.Z, {})) then
             log("Your partner's scene " .. s.name .. " began beside you: no ground found under its box's spot here, left where you are.")
             return
         end
@@ -1406,7 +1406,7 @@ return function(api)
         local n = math.sqrt(dx * dx + dy * dy)
         if d > 400 and n > 1 then
             local sx, sy = b.x + dx / n * 120, b.y + dy / n * 120
-            if not (game.floorUnder and game.floorUnder(pawn, sx, sy, b.z)) then
+            if not (game.floorUnder and game.floorUnder(pawn, sx, sy, b.z, {})) then
                 log("Your partner rang a bell beside you: no ground found behind them here, the bell left for your own ring.")
                 return
             end
